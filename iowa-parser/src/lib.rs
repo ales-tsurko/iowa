@@ -11,6 +11,6 @@
     unreachable_pub
 )]
 
-mod span;
-pub(crate) mod comment;
 mod number;
+mod quote;
+mod span;

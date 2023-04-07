@@ -1,9 +1,9 @@
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take_until},
-    character::complete::{line_ending, one_of},
+    character::complete::line_ending,
     combinator::value,
-    sequence::{pair, tuple},
+    sequence::tuple,
     IResult,
 };
 

@@ -1,3 +1,5 @@
+mod comment;
+
 use nom::{
     branch::alt,
     bytes::complete::tag,
@@ -7,7 +9,7 @@ use nom::{
     IResult,
 };
 
-use crate::comment::comment;
+use comment::comment;
 
 fn terminator(input: &str) -> IResult<&str, ()> {
     value(
