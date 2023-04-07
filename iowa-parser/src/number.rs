@@ -3,7 +3,7 @@
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{char, one_of},
+    character::complete::{char, one_of, hex_digit1, digit1},
     combinator::{map_res, opt, recognize},
     multi::many1,
     sequence::{pair, preceded, tuple},
@@ -27,13 +27,9 @@ pub fn number(input: &str) -> IResult<&str, Number> {
 // Define a parser for hexadecimal digits
 fn hex_number(input: &str) -> IResult<&str, Number> {
     map_res(
-        preceded(alt((tag("0x"), tag("0X"))), recognize(many1(hex_digit))),
+        preceded(alt((tag("0x"), tag("0X"))), recognize(many1(hex_digit1))),
         |out: &str| u64::from_str_radix(out, 16).map(Number::Hex),
     )(input)
-}
-
-fn hex_digit(input: &str) -> IResult<&str, char> {
-    one_of("0123456789abcdefABCDEF")(input)
 }
 
 // Define a parser for decimal numbers
@@ -44,26 +40,22 @@ fn decimal_number(input: &str) -> IResult<&str, Number> {
             // .42
             recognize(tuple((
                 char('.'),
-                digit,
-                opt(tuple((one_of("eE"), opt(one_of("+-")), digit))),
+                digit1,
+                opt(tuple((one_of("eE"), opt(one_of("+-")), digit1))),
             ))), // 42e42 and 42.42e42
             recognize(tuple((
-                digit,
-                opt(preceded(char('.'), digit)),
+                digit1,
+                opt(preceded(char('.'), digit1)),
                 one_of("eE"),
                 opt(one_of("+-")),
-                digit,
+                digit1,
             ))), // 42. and 42.42
-            recognize(tuple((digit, char('.'), opt(digit)))),
+            recognize(tuple((digit1, char('.'), opt(digit1)))),
             // 42
-            recognize(digit),
+            recognize(digit1),
         )),
     ));
     map_res(num, |out: &str| out.parse::<f64>().map(Number::Decimal))(input)
-}
-
-fn digit(input: &str) -> IResult<&str, &str> {
-    recognize(many1(one_of("0123456789")))(input)
 }
 
 #[cfg(test)]
