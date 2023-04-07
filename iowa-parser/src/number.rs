@@ -1,9 +1,7 @@
-//! Number parser.
-
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{char, one_of, hex_digit1, digit1},
+    character::complete::{char, digit1, hex_digit1, one_of},
     combinator::{map_res, opt, recognize},
     multi::many1,
     sequence::{pair, preceded, tuple},
@@ -19,8 +17,7 @@ pub enum Number {
     Decimal(f64),
 }
 
-/// Parse number.
-pub fn number(input: &str) -> IResult<&str, Number> {
+pub(crate) fn number(input: &str) -> IResult<&str, Number> {
     alt((hex_number, decimal_number))(input)
 }
 

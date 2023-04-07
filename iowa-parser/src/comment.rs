@@ -1,22 +1,21 @@
-//! Comment parser.
-
 use nom::{
     branch::alt,
-    bytes::complete::is_not,
-    bytes::complete::{tag, take_until},
-    character::complete::one_of,
+    bytes::complete::{is_not, tag, take_until},
+    character::complete::{line_ending, one_of},
     combinator::value,
     sequence::{pair, tuple},
     IResult,
 };
 
-/// Parse comment.
-pub fn comment(input: &str) -> IResult<&str, ()> {
+pub(crate) fn comment(input: &str) -> IResult<&str, ()> {
     alt((line_comment, block_comment))(input)
 }
 
 fn line_comment(input: &str) -> IResult<&str, ()> {
-    value((), pair(one_of("#/"), is_not("\n\r")))(input)
+    value(
+        (),
+        tuple((alt((tag("#"), tag("//"))), is_not("\n\r"), line_ending)),
+    )(input)
 }
 
 fn block_comment(input: &str) -> IResult<&str, ()> {
@@ -29,8 +28,8 @@ mod tests {
 
     #[test]
     fn test_comment() {
-        assert_eq!(line_comment("# comment"), Ok(("", ())));
-        assert_eq!(line_comment("/ comment"), Ok(("", ())));
+        assert_eq!(line_comment("# comment\n"), Ok(("", ())));
+        assert_eq!(line_comment("// comment\n"), Ok(("", ())));
     }
 
     #[test]
