@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "iowa",
+    "iowa-cli",
+    "iowa-parser",
+]
