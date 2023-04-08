@@ -3,20 +3,23 @@ mod quote;
 
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_until, take_while1},
-    character::complete::{char, none_of},
-    combinator::{map, recognize},
-    multi::many0,
-    sequence::{delimited, preceded},
+    bytes::complete::{tag, take_while1},
+    combinator::map,
     IResult,
 };
 
 use self::quote::quote;
 
+/// The Symbol type.
+#[derive(Debug, PartialEq, Clone)]
 pub enum Symbol<'a> {
+    /// Identifier.
     Identifier(Identifier<'a>),
+    /// Number.
     Number(number::Number),
+    /// Operator.
     Operator(Operator),
+    /// Quote.
     Quote(quote::Quote<'a>),
 }
 
@@ -55,23 +58,11 @@ pub enum Operator {
 
 pub(crate) fn symbol(input: &str) -> IResult<&str, Symbol<'_>> {
     alt((
-        map(identifier, Symbol::Identifier),
+        map(quote, Symbol::Quote),
         map(number::number, Symbol::Number),
         map(op_token, Symbol::Operator),
-        map(quote, Symbol::Quote),
+        map(identifier, Symbol::Identifier),
     ))(input)
-}
-
-fn mono_quote(input: &str) -> IResult<&str, &str> {
-    let inner = recognize(many0(alt((
-        none_of(r#""\"#),
-        preceded(char('\\'), alt((char('"'), char('\\')))),
-    ))));
-    delimited(char('"'), inner, char('"'))(input)
-}
-
-fn tri_quote(input: &str) -> IResult<&str, &str> {
-    delimited(tag("\"\"\""), take_until("\"\"\""), tag("\"\"\""))(input)
 }
 
 fn identifier(input: &str) -> IResult<&str, Identifier<'_>> {

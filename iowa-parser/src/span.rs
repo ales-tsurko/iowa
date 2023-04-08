@@ -4,12 +4,30 @@ use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{char, line_ending, one_of},
-    combinator::{opt, recognize, value},
+    combinator::{map, opt, recognize, value},
     sequence::tuple,
     IResult,
 };
 
 use comment::comment;
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub(crate) struct Terminator;
+
+pub(crate) fn sctpad(input: &str) -> IResult<&str, Option<Terminator>> {
+    alt((
+        map(terminator, |_| Some(Terminator)),
+        map(alt((separator, comment)), |_| None),
+    ))(input)
+}
+
+pub(crate) fn scpad(input: &str) -> IResult<&str, ()> {
+    value((), alt((separator, comment)))(input)
+}
+
+pub(crate) fn wcpad(input: &str) -> IResult<&str, ()> {
+    value((), alt((whitespace, comment)))(input)
+}
 
 fn terminator(input: &str) -> IResult<&str, ()> {
     value(
@@ -20,18 +38,6 @@ fn terminator(input: &str) -> IResult<&str, ()> {
             recognize(tuple((char('\r'), opt(separator)))),
         )),
     )(input)
-}
-
-fn sctpad(input: &str) -> IResult<&str, ()> {
-    value((), alt((separator, comment, terminator)))(input)
-}
-
-fn scpad(input: &str) -> IResult<&str, ()> {
-    value((), alt((separator, comment)))(input)
-}
-
-fn wcpad(input: &str) -> IResult<&str, ()> {
-    value((), alt((whitespace, comment)))(input)
 }
 
 fn separator(input: &str) -> IResult<&str, ()> {
@@ -64,10 +70,10 @@ mod tests {
 
     #[test]
     fn test_parse_sctpad() {
-        assert_eq!(sctpad(" "), Ok(("", ())));
-        assert_eq!(sctpad("# comment\n"), Ok(("", ())));
-        assert_eq!(sctpad(";"), Ok(("", ())));
-        assert_eq!(sctpad("\r"), Ok(("", ())));
+        assert_eq!(sctpad(" "), Ok(("", None)));
+        assert_eq!(sctpad("# comment\n"), Ok(("", None)));
+        assert_eq!(sctpad(";"), Ok(("", Some(Terminator))));
+        assert_eq!(sctpad("\r"), Ok(("", Some(Terminator))));
     }
 
     #[test]

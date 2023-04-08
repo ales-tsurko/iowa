@@ -9,7 +9,7 @@ use nom::{
 };
 
 /// The Number type.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Number {
     /// Hexadecimal number.
     Hex(u64),
