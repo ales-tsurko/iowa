@@ -2,14 +2,17 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::{char, none_of},
-    combinator::recognize,
+    combinator::{map, recognize},
     multi::many0,
     sequence::{delimited, preceded},
     IResult,
 };
 
-fn quote(input: &str) -> IResult<&str, &str> {
-    alt((tri_quote, mono_quote))(input)
+#[derive(Debug, PartialEq, Clone)]
+pub struct Quote<'a>(&'a str);
+
+pub(crate) fn quote(input: &str) -> IResult<&str, Quote<'_>> {
+    map(alt((tri_quote, mono_quote)), Quote)(input)
 }
 
 fn mono_quote(input: &str) -> IResult<&str, &str> {
@@ -56,15 +59,15 @@ mod tests {
 
     #[test]
     fn test_parse_quote() {
-        assert_eq!(quote(r#""test""#), Ok(("", "test")));
+        assert_eq!(quote(r#""test""#), Ok(("", Quote("test"))));
         assert_eq!(
             quote(r#""hello, \"world\"""#),
-            Ok(("", "hello, \\\"world\\\""))
+            Ok(("", Quote("hello, \\\"world\\\"")))
         );
-        assert_eq!(quote(r#""""""""#), Ok(("", "")));
+        assert_eq!(quote(r#""""""""#), Ok(("", Quote(""))));
         assert_eq!(
             quote(r#""""Hello, world!""""#),
-            Ok(("", "Hello, world!"))
+            Ok(("", Quote("Hello, world!")))
         );
     }
 }

@@ -1,4 +1,4 @@
-//! Io programming language using WASM runtime.
+//! Io programming language parser.
 
 #![warn(
     clippy::all,
@@ -11,6 +11,5 @@
     unreachable_pub
 )]
 
-mod number;
-mod quote;
 mod span;
+mod symbol;
