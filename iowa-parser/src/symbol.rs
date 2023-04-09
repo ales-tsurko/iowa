@@ -10,22 +10,55 @@ use nom::{
 
 use self::quote::quote;
 
+pub use number::Number;
+pub use quote::Quote;
+
 /// The Symbol type.
 #[derive(Debug, PartialEq, Clone)]
 pub enum Symbol<'a> {
     /// Identifier.
     Identifier(Identifier<'a>),
     /// Number.
-    Number(number::Number),
+    Number(Number),
     /// Operator.
     Operator(Operator),
     /// Quote.
-    Quote(quote::Quote<'a>),
+    Quote(Quote<'a>),
+}
+
+impl<'a> From<Identifier<'a>> for Symbol<'a> {
+    fn from(input: Identifier<'a>) -> Self {
+        Self::Identifier(input)
+    }
+}
+
+impl From<Number> for Symbol<'_> {
+    fn from(input: Number) -> Self {
+        Self::Number(input)
+    }
+}
+
+impl From<Operator> for Symbol<'_> {
+    fn from(input: Operator) -> Self {
+        Self::Operator(input)
+    }
+}
+
+impl<'a> From<Quote<'a>> for Symbol<'a> {
+    fn from(input: Quote<'a>) -> Self {
+        Self::Quote(input)
+    }
 }
 
 /// Identifier token.
 #[derive(Debug, PartialEq, Clone)]
 pub struct Identifier<'a>(&'a str);
+
+impl<'a> From<&'a str> for Identifier<'a> {
+    fn from(input: &'a str) -> Self {
+        Self(input)
+    }
+}
 
 /// Operator token.
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -58,9 +91,9 @@ pub enum Operator {
 
 pub(crate) fn symbol(input: &str) -> IResult<&str, Symbol<'_>> {
     alt((
+        map(op_token, Symbol::Operator),
         map(quote, Symbol::Quote),
         map(number::number, Symbol::Number),
-        map(op_token, Symbol::Operator),
         map(identifier, Symbol::Identifier),
     ))(input)
 }

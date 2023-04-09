@@ -17,6 +17,18 @@ pub enum Number {
     Decimal(f64),
 }
 
+impl From<f64> for Number {
+    fn from(num: f64) -> Self {
+        Self::Decimal(num)
+    }
+}
+
+impl From<u64> for Number {
+    fn from(num: u64) -> Self {
+        Self::Hex(num)
+    }
+}
+
 pub(crate) fn number(input: &str) -> IResult<&str, Number> {
     alt((hex_number, decimal_number))(input)
 }

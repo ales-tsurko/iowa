@@ -29,7 +29,7 @@ pub(crate) fn wcpad(input: &str) -> IResult<&str, ()> {
     value((), alt((whitespace, comment)))(input)
 }
 
-fn terminator(input: &str) -> IResult<&str, ()> {
+pub(crate) fn terminator(input: &str) -> IResult<&str, ()> {
     value(
         (),
         alt((
@@ -41,10 +41,10 @@ fn terminator(input: &str) -> IResult<&str, ()> {
 }
 
 fn separator(input: &str) -> IResult<&str, ()> {
-    value((), one_of(" \t\x0b\x0c"))(input)
+    value((), alt((char(' '), char('\t'), char('\x0c'), char('\x0b'))))(input)
 }
 
-fn whitespace(input: &str) -> IResult<&str, ()> {
+pub(crate) fn whitespace(input: &str) -> IResult<&str, ()> {
     value((), one_of(" \t\r\n\x0b\x0c"))(input)
 }
 
