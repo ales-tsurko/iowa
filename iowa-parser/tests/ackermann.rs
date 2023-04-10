@@ -12,7 +12,7 @@ fn test_parser() {
     )
 
     ack(3, 4) print
-    #"\n" print
+    "\n" print
     "#;
 
     let result = parse(input);

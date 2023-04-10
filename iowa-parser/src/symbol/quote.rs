@@ -8,6 +8,7 @@ use nom::{
     IResult,
 };
 
+/// Quote (string) token.
 #[derive(Debug, PartialEq, Clone)]
 pub struct Quote<'a>(&'a str);
 

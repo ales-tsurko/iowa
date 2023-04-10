@@ -4,22 +4,12 @@ use nom::{
     branch::alt,
     bytes::complete::tag,
     character::complete::{char, line_ending, one_of},
-    combinator::{map, opt, recognize, value},
+    combinator::{opt, recognize, value},
     sequence::tuple,
     IResult,
 };
 
 use comment::comment;
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub(crate) struct Terminator;
-
-pub(crate) fn sctpad(input: &str) -> IResult<&str, Option<Terminator>> {
-    alt((
-        map(terminator, |_| Some(Terminator)),
-        map(alt((separator, comment)), |_| None),
-    ))(input)
-}
 
 pub(crate) fn scpad(input: &str) -> IResult<&str, ()> {
     value((), alt((separator, comment)))(input)
@@ -66,14 +56,6 @@ mod tests {
         assert_eq!(terminator(";\n"), Ok(("\n", ())));
         assert_eq!(terminator("; \r"), Ok((" \r", ())));
         assert_eq!(terminator("\r"), Ok(("", ())));
-    }
-
-    #[test]
-    fn test_parse_sctpad() {
-        assert_eq!(sctpad(" "), Ok(("", None)));
-        assert_eq!(sctpad("# comment\n"), Ok(("", None)));
-        assert_eq!(sctpad(";"), Ok(("", Some(Terminator))));
-        assert_eq!(sctpad("\r"), Ok(("", Some(Terminator))));
     }
 
     #[test]

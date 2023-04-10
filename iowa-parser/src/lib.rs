@@ -18,14 +18,14 @@ use std::ops::{Deref, DerefMut};
 
 use nom::{
     branch::alt,
-    character::complete::{char, multispace0},
-    combinator::{all_consuming, complete, map, opt, value},
-    multi::{fold_many0, many0, many1, separated_list0},
-    sequence::{delimited, terminated},
+    character::complete::char,
+    combinator::{all_consuming, opt},
+    multi::{many0, many1, separated_list0},
+    sequence::{delimited, preceded, terminated},
     IResult,
 };
 
-pub use symbol::{Number, Symbol};
+pub use symbol::{Number, Symbol, Quote, Operator};
 
 /// A chain of messages is a list of messages before a terminator.
 #[derive(Debug, Default, PartialEq, Clone)]
@@ -38,9 +38,9 @@ impl<'a> MessageChain<'a> {
     }
 }
 
-impl<'a> From<Vec<Message<'a>>> for MessageChain<'a> {
-    fn from(messages: Vec<Message<'a>>) -> Self {
-        Self::new(messages)
+impl<'a, M: Into<Vec<Message<'a>>>> From<M> for MessageChain<'a> {
+    fn from(messages: M) -> Self {
+        Self::new(messages.into())
     }
 }
 
@@ -58,25 +58,75 @@ impl DerefMut for MessageChain<'_> {
     }
 }
 
+/// Argument type.
+#[derive(Debug, Default, PartialEq, Clone)]
+pub struct Argument<'a>(Vec<MessageChain<'a>>);
+
+impl<'a> Argument<'a> {
+    /// Create a new argument.
+    pub fn new(messages: Vec<MessageChain<'a>>) -> Self {
+        Self(messages)
+    }
+}
+
+impl<'a, M: Into<Vec<MessageChain<'a>>>> From<M> for Argument<'a> {
+    fn from(messages: M) -> Self {
+        Self::new(messages.into())
+    }
+}
+
+impl<'a> Deref for Argument<'a> {
+    type Target = Vec<MessageChain<'a>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Argument<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 /// The Message type.
 #[derive(Debug, PartialEq, Clone)]
 pub struct Message<'a> {
     /// The message.
     pub symbol: Symbol<'a>,
     /// Arguments.
-    pub args: Vec<MessageChain<'a>>,
+    pub args: Vec<Argument<'a>>,
 }
 
 impl<'a> Message<'a> {
     /// Create a new message.
-    pub fn new(symbol: Symbol<'a>, args: Vec<MessageChain<'a>>) -> Self {
-        Self { symbol, args }
+    pub fn new(symbol: Symbol<'a>, args: Vec<Argument<'a>>) -> Self {
+        Self {
+            symbol,
+            args: args.into(),
+        }
+    }
+}
+
+impl<'a> From<Symbol<'a>> for Message<'a> {
+    fn from(symbol: Symbol<'a>) -> Self {
+        Self::new(symbol, vec![])
+    }
+}
+
+impl<'a, A: Into<Vec<Argument<'a>>>> From<(Symbol<'a>, A)> for Message<'a> {
+    fn from((symbol, args): (Symbol<'a>, A)) -> Self {
+        Self::new(symbol, args.into())
     }
 }
 
 /// Parser entry-point.
 pub fn parse(input: &str) -> IResult<&str, Vec<MessageChain<'_>>> {
-    all_consuming(many0(message_chain))(input)
+    all_consuming(many0(delimited(
+        many0(span::wcpad),
+        message_chain,
+        many0(span::wcpad),
+    )))(input)
 }
 
 fn message_chain(input: &str) -> IResult<&str, MessageChain<'_>> {
@@ -86,31 +136,33 @@ fn message_chain(input: &str) -> IResult<&str, MessageChain<'_>> {
 }
 
 fn message(input: &str) -> IResult<&str, Message<'_>> {
-    let (rest, _) = many0(span::wcpad)(input)?;
+    let (rest, _) = many0(span::scpad)(input)?;
     let (rest, symbol) = symbol::symbol(rest)?;
     let (rest, _) = opt(span::scpad)(rest)?;
     let (rest, args) = opt(arguments)(rest)?;
     Ok((rest, Message::new(symbol, args.unwrap_or_default())))
 }
 
-fn arguments(input: &str) -> IResult<&str, Vec<MessageChain<'_>>> {
+fn arguments(input: &str) -> IResult<&str, Vec<Argument<'_>>> {
     alt((
         delimited(
             char('('),
-            separated_list0(char(','), message_chain),
+            terminated(
+                separated_list0(char(','), argument),
+                opt(preceded(char(','), many0(span::wcpad))),
+            ),
             char(')'),
         ),
-        delimited(
-            char('['),
-            separated_list0(char(','), message_chain),
-            char(']'),
-        ),
-        delimited(
-            char('{'),
-            separated_list0(char(','), message_chain),
-            char('}'),
-        ),
+        delimited(char('['), separated_list0(char(','), argument), char(']')),
+        delimited(char('{'), separated_list0(char(','), argument), char('}')),
     ))(input)
+}
+
+fn argument(input: &str) -> IResult<&str, Argument<'_>> {
+    let (input, _) = many0(span::wcpad)(input)?;
+    let (input, messages) = many1(message_chain)(input)?;
+    let (input, _) = many0(span::wcpad)(input)?;
+    Ok((input, Argument::new(messages)))
 }
 
 #[cfg(test)]
@@ -118,17 +170,55 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_arguments() {
+        let input = r#"(m, n,
+            // comment
+            foo bar(1)
+            baz(0) qux
+          )"#;
+
+        let expected: Vec<Argument<'_>> = [
+            [[Symbol::Identifier("m".into()).into()].into()].into(),
+            [[Symbol::Identifier("n".into()).into()].into()].into(),
+            [
+                [
+                    Symbol::Identifier("foo".into()).into(),
+                    (
+                        Symbol::Identifier("bar".into()),
+                        [[[Symbol::Number(1.0.into()).into()].into()].into()],
+                    )
+                        .into(),
+                ]
+                .into(),
+                [
+                    (
+                        Symbol::Identifier("baz".into()),
+                        [[[Symbol::Number(0.0.into()).into()].into()].into()],
+                    )
+                        .into(),
+                    Symbol::Identifier("qux".into()).into(),
+                ]
+                .into(),
+            ]
+            .into(),
+        ]
+        .into();
+
+        assert_eq!(arguments(input), Ok(("", expected)));
+    }
+
+    #[test]
     fn test_parse_message() {
         let input = "foo";
         assert_eq!(
             message(input),
-            Ok(("", Message::new(Symbol::Identifier("foo".into()), vec![])))
+            Ok(("", Symbol::Identifier("foo".into()).into()))
         );
 
         let input = "foo()";
         assert_eq!(
             message(input),
-            Ok(("", Message::new(Symbol::Identifier("foo".into()), vec![])))
+            Ok(("", Symbol::Identifier("foo".into()).into()))
         );
 
         let input = "foo(1, bar baz)";
@@ -139,14 +229,16 @@ mod tests {
                 "",
                 Message::new(
                     Symbol::Identifier("foo".into()),
-                    vec![
-                        vec![Message::new(Symbol::Number(1.0.into()), vec![])].into(),
-                        vec![
+                    [
+                        [[Symbol::Number(1.0.into()).into()].into()].into(),
+                        [[
                             Message::new(Symbol::Identifier("bar".into()), vec![]),
                             Message::new(Symbol::Identifier("baz".into()), vec![])
                         ]
+                        .into()]
                         .into()
                     ]
+                    .into()
                 )
             ))
         );
@@ -185,14 +277,16 @@ mod tests {
             message_chain(input),
             Ok((
                 "",
-                MessageChain::new(vec![
-                    Message::new(Symbol::Identifier("foo".into()), vec![]),
-                    Message::new(
+                [
+                    Symbol::Identifier("foo".into()).into(),
+                    (
                         Symbol::Identifier("bar".into()),
-                        vec![vec![Message::new(Symbol::Number(1.0.into()), vec![])].into()]
-                    ),
-                    Message::new(Symbol::Identifier("baz".into()), vec![]),
-                ])
+                        [[[Symbol::Number(1.0.into()).into()].into()].into()],
+                    )
+                        .into(),
+                    Symbol::Identifier("baz".into()).into(),
+                ]
+                .into()
             ))
         );
     }

@@ -61,6 +61,7 @@ impl<'a> From<&'a str> for Identifier<'a> {
 }
 
 /// Operator token.
+#[allow(missing_docs)]
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Operator {
     Colon,
@@ -91,8 +92,8 @@ pub enum Operator {
 
 pub(crate) fn symbol(input: &str) -> IResult<&str, Symbol<'_>> {
     alt((
-        map(op_token, Symbol::Operator),
         map(quote, Symbol::Quote),
+        map(op_token, Symbol::Operator),
         map(number::number, Symbol::Number),
         map(identifier, Symbol::Identifier),
     ))(input)
