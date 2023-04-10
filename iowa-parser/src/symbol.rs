@@ -23,7 +23,7 @@ pub enum Symbol<'a> {
     /// Operator.
     Operator(Operator),
     /// Quote.
-    Quote(Quote<'a>),
+    Quote(Quote),
 }
 
 impl<'a> From<Identifier<'a>> for Symbol<'a> {
@@ -44,8 +44,8 @@ impl From<Operator> for Symbol<'_> {
     }
 }
 
-impl<'a> From<Quote<'a>> for Symbol<'a> {
-    fn from(input: Quote<'a>) -> Self {
+impl From<Quote> for Symbol<'_> {
+    fn from(input: Quote) -> Self {
         Self::Quote(input)
     }
 }
@@ -92,8 +92,8 @@ pub enum Operator {
 
 pub(crate) fn symbol(input: &str) -> IResult<&str, Symbol<'_>> {
     alt((
-        map(quote, Symbol::Quote),
         map(op_token, Symbol::Operator),
+        map(quote, Symbol::Quote),
         map(number::number, Symbol::Number),
         map(identifier, Symbol::Identifier),
     ))(input)

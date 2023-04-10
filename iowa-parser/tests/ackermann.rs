@@ -3,6 +3,7 @@ use iowa_parser::parse;
 #[test]
 fn test_parser() {
     let input = r#"
+    #!/usr/bin/env io
 
     ack := method(m, n,
       //writeln("ack(", m, ",", n, ")")
