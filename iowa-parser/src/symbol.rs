@@ -1,4 +1,5 @@
 mod number;
+mod operator;
 mod quote;
 
 use nom::{
@@ -11,19 +12,32 @@ use nom::{
 use self::quote::quote;
 
 pub use number::Number;
+pub use operator::*;
 pub use quote::Quote;
 
 /// The Symbol type.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub enum Symbol<'a> {
     /// Identifier.
     Identifier(Identifier<'a>),
     /// Number.
     Number(Number),
     /// Operator.
-    Operator(Operator),
+    Operator(Box<dyn Operator>),
     /// Quote.
     Quote(Quote),
+}
+
+impl PartialEq for Symbol<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Identifier(a), Self::Identifier(b)) => a == b,
+            (Self::Number(a), Self::Number(b)) => a == b,
+            (Self::Operator(a), Self::Operator(b)) => a.symbol() == b.symbol(),
+            (Self::Quote(a), Self::Quote(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 impl<'a> From<Identifier<'a>> for Symbol<'a> {
@@ -38,9 +52,9 @@ impl From<Number> for Symbol<'_> {
     }
 }
 
-impl From<Operator> for Symbol<'_> {
-    fn from(input: Operator) -> Self {
-        Self::Operator(input)
+impl<T: Operator> From<T> for Symbol<'_> {
+    fn from(input: T) -> Self {
+        Self::Operator(Box::new(input))
     }
 }
 
@@ -60,36 +74,6 @@ impl<'a> From<&'a str> for Identifier<'a> {
     }
 }
 
-/// Operator token.
-#[allow(missing_docs)]
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum Operator {
-    Colon,
-    Dot,
-    Quote,
-    Tilde,
-    Bang,
-    At,
-    Dollar,
-    Percent,
-    Caret,
-    And,
-    Star,
-    Minus,
-    Plus,
-    Slash,
-    Equal,
-    LBrace,
-    RBrace,
-    LBracket,
-    RBracket,
-    Bar,
-    Backslash,
-    LessThan,
-    GreaterThan,
-    QuestionMark,
-}
-
 pub(crate) fn symbol(input: &str) -> IResult<&str, Symbol<'_>> {
     alt((
         map(op_token, Symbol::Operator),
@@ -106,35 +90,17 @@ fn identifier(input: &str) -> IResult<&str, Identifier<'_>> {
     )(input)
 }
 
-fn op_token(input: &str) -> IResult<&str, Operator> {
-    alt((
-        map(tag(":"), |_| Operator::Colon),
-        map(tag("."), |_| Operator::Dot),
-        map(tag("'"), |_| Operator::Quote),
-        map(tag("~"), |_| Operator::Tilde),
-        map(tag("!"), |_| Operator::Bang),
-        map(tag("@"), |_| Operator::At),
-        map(tag("$"), |_| Operator::Dollar),
-        map(tag("%"), |_| Operator::Percent),
-        map(tag("^"), |_| Operator::Caret),
-        map(tag("&"), |_| Operator::And),
-        map(tag("*"), |_| Operator::Star),
-        map(tag("-"), |_| Operator::Minus),
-        alt((
-            map(tag("+"), |_| Operator::Plus),
-            map(tag("/"), |_| Operator::Slash),
-            map(tag("="), |_| Operator::Equal),
-            map(tag("{"), |_| Operator::LBrace),
-            map(tag("}"), |_| Operator::RBrace),
-            map(tag("["), |_| Operator::LBracket),
-            map(tag("]"), |_| Operator::RBracket),
-            map(tag("|"), |_| Operator::Bar),
-            map(tag("\\"), |_| Operator::Backslash),
-            map(tag("<"), |_| Operator::LessThan),
-            map(tag(">"), |_| Operator::GreaterThan),
-            map(tag("?"), |_| Operator::QuestionMark),
-        )),
-    ))(input)
+fn op_token(input: &str) -> IResult<&str, Box<dyn Operator>> {
+    for op in OperatorTable::all_symbols() {
+        let res: IResult<&str, &str> = tag(op)(input);
+        if let Ok((input, _)) = res {
+            return Ok((input, OperatorTable::get(op).unwrap()));
+        }
+    }
+    Err(nom::Err::Error(nom::error::Error::new(
+        input,
+        nom::error::ErrorKind::Tag,
+    )))
 }
 
 #[cfg(test)]

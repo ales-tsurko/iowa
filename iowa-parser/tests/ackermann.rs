@@ -16,7 +16,5 @@ fn test_parser() {
     "\n" print
     "#;
 
-    let result = parse(input);
-
-    dbg!(result);
+    assert!(parse(input).is_ok())
 }

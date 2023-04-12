@@ -25,7 +25,7 @@ use nom::{
     IResult,
 };
 
-pub use symbol::{Number, Symbol, Quote, Operator};
+pub use symbol::*;
 
 /// A chain of messages is a list of messages before a terminator.
 #[derive(Debug, Default, PartialEq, Clone)]
@@ -137,7 +137,7 @@ fn message_chain(input: &str) -> IResult<&str, MessageChain<'_>> {
 
 fn message(input: &str) -> IResult<&str, Message<'_>> {
     let (rest, _) = many0(span::scpad)(input)?;
-    let (rest, symbol) = symbol::symbol(rest)?;
+    let (rest, symbol) = symbol(rest)?;
     let (rest, _) = opt(span::scpad)(rest)?;
     let (rest, args) = opt(arguments)(rest)?;
     Ok((rest, Message::new(symbol, args.unwrap_or_default())))
