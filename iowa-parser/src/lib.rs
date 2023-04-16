@@ -24,6 +24,7 @@ use nom::{
     sequence::{delimited, preceded, terminated},
     IResult,
 };
+use rayon::prelude::*;
 
 pub use symbol::*;
 
@@ -35,6 +36,70 @@ impl<'a> MessageChain<'a> {
     /// Create a new message chain.
     pub fn new(messages: Vec<Message<'a>>) -> Self {
         Self(messages)
+    }
+
+    fn sort(self) -> Self {
+        let mut stack: Vec<Message> = Vec::new();
+        let mut output = Vec::new();
+
+        for msg in self.desugar_operators().0.into_iter() {
+            match msg.symbol {
+                Symbol::Operator(ref msg_op) => {
+                    if let Some(top) = stack.last() {
+                        if msg_op.precedence() > top.symbol.as_ref_op().precedence() {
+                            Self::fold_op_args(&mut stack);
+                        }
+                    }
+                    stack.push(msg);
+                }
+                _ => output.push(msg),
+            }
+        }
+
+        Self::fold_op_args(&mut stack);
+
+        output.append(&mut stack);
+
+        output.into()
+    }
+
+    fn desugar_operators(self) -> Self {
+        let mut stack = Vec::new();
+        let mut output = Vec::new();
+
+        for msg in self.0.into_iter() {
+            match msg.symbol {
+                Symbol::Operator(_) => {
+                    if let Some(top) = stack.pop() {
+                        output.push(top);
+                    }
+                    stack.push(msg);
+                }
+                _ => match stack.last_mut() {
+                    Some(top) => top.push_to_first_arg(msg),
+                    None => output.push(msg),
+                },
+            }
+        }
+
+        output.append(&mut stack);
+        output.into()
+    }
+
+    fn fold_op_args(stack: &mut Vec<Message>) {
+        if let Some(mut top) = stack.pop() {
+            while let Some(mut next) = stack.pop() {
+                if top.symbol.as_ref_op().precedence() < next.symbol.as_ref_op().precedence() {
+                    next.push_to_first_arg(top);
+                    top = next;
+                } else {
+                    stack.push(next);
+                    break;
+                }
+            }
+
+            stack.push(top);
+        }
     }
 }
 
@@ -106,6 +171,15 @@ impl<'a> Message<'a> {
             args: args.into(),
         }
     }
+
+    /// Push a message to the first argument.
+    pub fn push_to_first_arg(&mut self, msg: Message<'a>) {
+        if self.args.is_empty() {
+            self.args.push(Argument::from([MessageChain::default()]));
+        }
+
+        self.args[0][0].push(msg);
+    }
 }
 
 impl<'a> From<Symbol<'a>> for Message<'a> {
@@ -122,11 +196,13 @@ impl<'a, A: Into<Vec<Argument<'a>>>> From<(Symbol<'a>, A)> for Message<'a> {
 
 /// Parser entry-point.
 pub fn parse(input: &str) -> IResult<&str, Vec<MessageChain<'_>>> {
-    all_consuming(many0(delimited(
+    let (rest, chains) = all_consuming(many0(delimited(
         many0(span::wcpad),
         message_chain,
         many0(span::wcpad),
-    )))(input)
+    )))(input)?;
+
+    Ok((rest, chains.into_par_iter().map(|c| c.sort()).collect()))
 }
 
 fn message_chain(input: &str) -> IResult<&str, MessageChain<'_>> {
@@ -289,5 +365,38 @@ mod tests {
                 .into()
             ))
         );
+    }
+
+    #[test]
+    fn test_desugar_operators() {
+        let input = "foo bar + baz qux * foo bar";
+        let chain = message_chain(input).unwrap().1;
+        let expected = message_chain("foo bar +(baz qux) *(foo bar)").unwrap().1;
+        assert_eq!(chain.desugar_operators(), expected,);
+    }
+
+    #[test]
+    fn test_sort_message_chain() {
+        let input = "1 >> 2 + 3";
+        let expected = message_chain("1 >>(2 +(3))").unwrap().1;
+        assert_eq!(message_chain(input).unwrap().1.sort(), expected);
+
+        let input = "1 * 2 + 3 >> 4";
+        let expected = message_chain("1 *(2) +(3) >>(4)").unwrap().1;
+        assert_eq!(message_chain(input).unwrap().1.sort(), expected);
+
+        let input = "1 + 2 * 3 + 4 >> 5";
+        let expected = message_chain("1 +(2 *(3)) +(4) >>(5)").unwrap().1;
+        assert_eq!(message_chain(input).unwrap().1.sort(), expected);
+
+        let input = "1 >> 2 + 3 * 4 + 5 >> 6";
+        let expected = message_chain("1 >>(2 +(3 *(4)) +(5)) >>(6)").unwrap().1;
+        assert_eq!(message_chain(input).unwrap().1.sort(), expected);
+
+        let input = "1 >> 2 bar + 3 * baz qux + 4 >> 5";
+        let expected = message_chain("1 >>(2 bar +(3 *(baz qux)) +(4)) >>(5)")
+            .unwrap()
+            .1;
+        assert_eq!(message_chain(input).unwrap().1.sort(), expected);
     }
 }

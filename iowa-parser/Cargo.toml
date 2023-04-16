@@ -9,3 +9,4 @@ edition = "2021"
 dyn-clone = "1.0"
 nom = { version = "7", default-features = false, features = ["alloc"] }
 once_cell = "1.17"
+rayon = "1.7"

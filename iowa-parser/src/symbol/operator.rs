@@ -1,14 +1,18 @@
 //! Operator table.
 
-use std::{collections::HashMap, sync::Mutex};
+use std::sync::Mutex;
 
 use dyn_clone::DynClone;
 use once_cell::sync::OnceCell;
+use rayon::prelude::*;
 
 /// A table of operators.
 #[derive(Debug)]
 pub struct OperatorTable {
-    table: Mutex<HashMap<&'static str, Box<dyn Operator>>>,
+    // we very rarely push operators and we access precedence during parse directly from a concrete
+    // operator, but we need to preserve order of insertion to prevent ambiguity during parsing, so
+    // it's better to use Vec instead of HashMap here
+    pub(crate) table: Mutex<Vec<Box<dyn Operator>>>,
 }
 
 impl OperatorTable {
@@ -18,79 +22,65 @@ impl OperatorTable {
         INSTANCE.get_or_init(|| Self::default())
     }
 
-    /// Update/insert an operator in the table.
+    /// Add an operator to the table (if it's not there already).
     pub fn add_operator(operator: impl Operator) {
-        Self::global()
-            .table
-            .lock()
-            .unwrap()
-            .insert(operator.symbol(), Box::new(operator));
-    }
-
-    /// Get an operator from the table.
-    pub fn get(symbol: &str) -> Option<Box<dyn Operator>> {
-        Self::global().table.lock().unwrap().get(symbol).cloned()
-    }
-
-    /// Get all symbols in the table.
-    pub fn all_symbols() -> Vec<&'static str> {
-        Self::global()
-            .table
-            .lock()
-            .unwrap()
-            .keys()
-            .copied()
-            .collect()
+        let mut table = Self::global().table.lock().unwrap();
+        if table
+            .binary_search_by_key(&operator.symbol(), |op| op.symbol())
+            .is_err()
+        {
+            table.push(Box::new(operator));
+            table.sort_unstable_by_key(|op| op.symbol());
+            table.reverse();
+        }
     }
 }
 
 impl Default for OperatorTable {
     fn default() -> Self {
-        let table: HashMap<_, _> = [
-            (
-                QuestionMark.symbol(),
-                Box::new(QuestionMark) as Box<dyn Operator>,
-            ),
-            (At.symbol(), Box::new(At)),
-            (AtAt.symbol(), Box::new(AtAt)),
-            (Power.symbol(), Box::new(Power)),
-            (Modulo.symbol(), Box::new(Modulo)),
-            (Multiply.symbol(), Box::new(Multiply)),
-            (Divide.symbol(), Box::new(Divide)),
-            (Plus.symbol(), Box::new(Plus)),
-            (Minus.symbol(), Box::new(Minus)),
-            (ShiftLeft.symbol(), Box::new(ShiftLeft)),
-            (ShiftRight.symbol(), Box::new(ShiftRight)),
-            (LessThan.symbol(), Box::new(LessThan)),
-            (LessThanEquals.symbol(), Box::new(LessThanEquals)),
-            (GreaterThan.symbol(), Box::new(GreaterThan)),
-            (GreaterThanEquals.symbol(), Box::new(GreaterThanEquals)),
-            (NotEquals.symbol(), Box::new(NotEquals)),
-            (EqualsEquals.symbol(), Box::new(EqualsEquals)),
-            (BitwiseAnd.symbol(), Box::new(BitwiseAnd)),
-            (BitwiseXor.symbol(), Box::new(BitwiseXor)),
-            (BitwiseOr.symbol(), Box::new(BitwiseOr)),
-            (And.symbol(), Box::new(And)),
-            (AndKey.symbol(), Box::new(AndKey)),
-            (Or.symbol(), Box::new(Or)),
-            (OrKey.symbol(), Box::new(OrKey)),
-            (DotDot.symbol(), Box::new(DotDot)),
-            (Assign.symbol(), Box::new(Assign)),
-            (ColonAssign.symbol(), Box::new(ColonAssign)),
-            (ColonColonAssign.symbol(), Box::new(ColonColonAssign)),
-            (ModuloAssign.symbol(), Box::new(ModuloAssign)),
-            (MultiplyAssign.symbol(), Box::new(MultiplyAssign)),
-            (DivideAssign.symbol(), Box::new(DivideAssign)),
-            (PlusAssign.symbol(), Box::new(PlusAssign)),
-            (MinusAssign.symbol(), Box::new(MinusAssign)),
-            (ShiftLeftAssign.symbol(), Box::new(ShiftLeftAssign)),
-            (ShiftRightAssign.symbol(), Box::new(ShiftRightAssign)),
-            (BitwiseAndAssign.symbol(), Box::new(BitwiseAndAssign)),
-            (BitwiseXorAssign.symbol(), Box::new(BitwiseXorAssign)),
-            (BitwiseOrAssign.symbol(), Box::new(BitwiseOrAssign)),
-            (Return.symbol(), Box::new(Return)),
-        ]
-        .into();
+        let mut table = vec![
+            Box::new(QuestionMark) as Box<dyn Operator>,
+            Box::new(AtAt),
+            Box::new(ColonAssign),
+            Box::new(ColonColonAssign),
+            Box::new(ModuloAssign),
+            Box::new(MultiplyAssign),
+            Box::new(DivideAssign),
+            Box::new(PlusAssign),
+            Box::new(MinusAssign),
+            Box::new(ShiftLeftAssign),
+            Box::new(ShiftRightAssign),
+            Box::new(BitwiseAndAssign),
+            Box::new(BitwiseXorAssign),
+            Box::new(BitwiseOrAssign),
+            Box::new(Power),
+            Box::new(At),
+            Box::new(Modulo),
+            Box::new(Multiply),
+            Box::new(Divide),
+            Box::new(Plus),
+            Box::new(Minus),
+            Box::new(ShiftLeft),
+            Box::new(ShiftRight),
+            Box::new(LessThanEquals),
+            Box::new(GreaterThanEquals),
+            Box::new(LessThan),
+            Box::new(GreaterThan),
+            Box::new(NotEquals),
+            Box::new(Assign),
+            Box::new(EqualsEquals),
+            Box::new(And),
+            Box::new(BitwiseAnd),
+            Box::new(BitwiseXor),
+            Box::new(BitwiseOr),
+            Box::new(AndKey),
+            Box::new(Or),
+            Box::new(OrKey),
+            Box::new(DotDot),
+            Box::new(Return),
+        ];
+        table.par_sort_unstable_by_key(|op| op.symbol());
+        table.reverse();
 
         Self {
             table: Mutex::new(table),

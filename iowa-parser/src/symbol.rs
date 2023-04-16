@@ -28,6 +28,15 @@ pub enum Symbol<'a> {
     Quote(Quote),
 }
 
+impl Symbol<'_> {
+    pub(crate) fn as_ref_op(&self) -> &Box<dyn Operator> {
+        match self {
+            Self::Operator(ref op) => op,
+            _ => unreachable!(),
+        }
+    }
+}
+
 impl PartialEq for Symbol<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -91,10 +100,11 @@ fn identifier(input: &str) -> IResult<&str, Identifier<'_>> {
 }
 
 fn op_token(input: &str) -> IResult<&str, Box<dyn Operator>> {
-    for op in OperatorTable::all_symbols() {
-        let res: IResult<&str, &str> = tag(op)(input);
+    let table = OperatorTable::global().table.lock().unwrap();
+    for op in &*table {
+        let res: IResult<&str, &str> = tag(op.symbol())(input);
         if let Ok((input, _)) = res {
-            return Ok((input, OperatorTable::get(op).unwrap()));
+            return Ok((input, op.clone()));
         }
     }
     Err(nom::Err::Error(nom::error::Error::new(
@@ -118,5 +128,18 @@ mod tests {
         assert_eq!(identifier("тест"), Ok(("", Identifier("тест"))));
         assert_eq!(identifier("_тест"), Ok(("", Identifier("_тест"))));
         assert_eq!(identifier("_"), Ok(("", Identifier("_"))));
+    }
+
+    #[test]
+    fn test_parse_operator() {
+        let ops = [
+            "?", "@", "@@", "**", "%", "*", "/", "+", "-", "<<", ">>", "<", "<=", ">", ">=", "!=",
+            "==", "&", "^", "|", "&&", "and", "||", "or", "..", "=", ":=", "::=", "%=", "*=", "/=",
+            "+=", "-=", "<<=", ">>=", "&=", "^=", "|=", "return",
+        ];
+
+        for op in ops {
+            assert_eq!(op_token(op).unwrap().1.symbol(), op);
+        }
     }
 }
