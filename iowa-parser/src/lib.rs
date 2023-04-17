@@ -42,7 +42,19 @@ impl<'a> MessageChain<'a> {
         let mut stack: Vec<Message> = Vec::new();
         let mut output = Vec::new();
 
-        for msg in self.desugar_operators().0.into_iter() {
+        for mut msg in self.desugar_operators().0.into_iter() {
+            // sort arguments
+            msg.args = msg
+                .args
+                .into_par_iter()
+                .map(|arg| {
+                    arg.0
+                        .into_par_iter()
+                        .map(|chain: MessageChain| chain.sort())
+                        .collect::<Vec<MessageChain>>()
+                        .into()
+                })
+                .collect();
             match msg.symbol {
                 Symbol::Operator(ref msg_op) => {
                     if let Some(top) = stack.last() {
@@ -395,6 +407,12 @@ mod tests {
 
         let input = "1 >> 2 bar + 3 * baz qux + 4 >> 5";
         let expected = message_chain("1 >>(2 bar +(3 *(baz qux)) +(4)) >>(5)")
+            .unwrap()
+            .1;
+        assert_eq!(message_chain(input).unwrap().1.sort(), expected);
+
+        let input = "1 >> 2 bar + 3 * baz qux(2 + 2 * 2 >> 3) + 4 >> 5";
+        let expected = message_chain("1 >>(2 bar +(3 *(baz qux(2 +(2 *(2)) >>(3)))) +(4)) >>(5)")
             .unwrap()
             .1;
         assert_eq!(message_chain(input).unwrap().1.sort(), expected);
