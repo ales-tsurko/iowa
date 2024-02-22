@@ -6,7 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dyn-clone = "1.0"
-nom = { version = "7", default-features = false, features = ["alloc"] }
-once_cell = "1.17"
-rayon = "1.7"
+dyn-clone = { workspace = true }
+nom = { workspace = true }
+rayon = { workspace = true }

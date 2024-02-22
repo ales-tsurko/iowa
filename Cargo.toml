@@ -1,6 +1,12 @@
 [workspace]
-members = [
-    "iowa",
-    "iowa-cli",
-    "iowa-parser",
-]
+resolver = "2"
+members = ["iowa-cli", "iowa-compiler", "iowa-parser"]
+
+[workspace.dependencies]
+dyn-clone = "1.0"
+nom = { version = "7", default-features = false, features = ["alloc"] }
+rayon = "1.7"
+cranelift = "0.105"
+
+# inner dependencies
+iowa-parser = { path = "./iowa-parser" }

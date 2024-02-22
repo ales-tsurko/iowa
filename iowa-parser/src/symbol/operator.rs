@@ -1,9 +1,9 @@
 //! Operator table.
 
 use std::sync::Mutex;
+use std::sync::OnceLock;
 
 use dyn_clone::DynClone;
-use once_cell::sync::OnceCell;
 use rayon::prelude::*;
 
 /// A table of operators.
@@ -18,7 +18,7 @@ pub struct OperatorTable {
 impl OperatorTable {
     /// Get the global operator table.
     pub fn global() -> &'static Self {
-        static INSTANCE: OnceCell<OperatorTable> = OnceCell::new();
+        static INSTANCE: OnceLock<OperatorTable> = OnceLock::new();
         INSTANCE.get_or_init(|| Self::default())
     }
 
