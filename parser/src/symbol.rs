@@ -3,10 +3,10 @@ mod operator;
 mod quote;
 
 use nom::{
+    IResult, Parser,
     branch::alt,
     bytes::complete::{tag, take_while1},
     combinator::map,
-    IResult,
 };
 
 use self::quote::quote;
@@ -31,7 +31,7 @@ pub enum Symbol<'a> {
 impl Symbol<'_> {
     pub(crate) fn as_ref_op(&self) -> &Box<dyn Operator> {
         match self {
-            Self::Operator(ref op) => op,
+            Self::Operator(op) => op,
             _ => unreachable!(),
         }
     }
@@ -89,24 +89,25 @@ pub(crate) fn symbol(input: &str) -> IResult<&str, Symbol<'_>> {
         map(quote, Symbol::Quote),
         map(number::number, Symbol::Number),
         map(identifier, Symbol::Identifier),
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn identifier(input: &str) -> IResult<&str, Identifier<'_>> {
-    map(
-        take_while1(|c: char| c.is_alphanumeric() || c == '_'),
-        Identifier,
-    )(input)
+    let id_parser = take_while1(|c: char| c.is_alphanumeric() || c == '_');
+    map(id_parser, Identifier).parse(input)
 }
 
 fn op_token(input: &str) -> IResult<&str, Box<dyn Operator>> {
     let table = OperatorTable::global().table.lock().unwrap();
     for op in &*table {
-        let res: IResult<&str, &str> = tag(op.symbol())(input);
+        let symbol_tag = tag(op.symbol());
+        let res: IResult<&str, &str> = symbol_tag(input);
         if let Ok((input, _)) = res {
             return Ok((input, op.clone()));
         }
     }
+
     Err(nom::Err::Error(nom::error::Error::new(
         input,
         nom::error::ErrorKind::Tag,

@@ -1,7 +1,8 @@
 [package]
 name = "iowa-parser"
 version = "0.1.0"
-edition = "2021"
+edition = { workspace = true }
+authors = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -9,3 +10,6 @@ edition = "2021"
 dyn-clone = { workspace = true }
 nom = { workspace = true }
 rayon = { workspace = true }
+
+[lints]
+workspace = true

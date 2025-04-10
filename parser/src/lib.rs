@@ -1,35 +1,24 @@
 //! Io programming language parser.
 
-#![warn(
-    clippy::all,
-    deprecated_in_future,
-    missing_docs,
-    unused_import_braces,
-    unused_labels,
-    unused_lifetimes,
-    unused_qualifications,
-    unreachable_pub
-)]
-
 mod span;
 mod symbol;
 
 use std::ops::{Deref, DerefMut};
 
 use nom::{
+    IResult, Parser,
     branch::alt,
     character::complete::char,
     combinator::{all_consuming, opt},
     multi::{many0, many1, separated_list0},
     sequence::{delimited, preceded, terminated},
-    IResult,
 };
 use rayon::prelude::*;
 
 pub use symbol::*;
 
 /// A chain of messages is a list of messages before a terminator.
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq)]
 pub struct MessageChain<'a>(Vec<Message<'a>>);
 
 impl<'a> MessageChain<'a> {
@@ -136,7 +125,7 @@ impl DerefMut for MessageChain<'_> {
 }
 
 /// Argument type.
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Argument<'a>(Vec<MessageChain<'a>>);
 
 impl<'a> Argument<'a> {
@@ -167,7 +156,7 @@ impl DerefMut for Argument<'_> {
 }
 
 /// The Message type.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub struct Message<'a> {
     /// The message.
     pub symbol: Symbol<'a>,
@@ -208,26 +197,24 @@ impl<'a, A: Into<Vec<Argument<'a>>>> From<(Symbol<'a>, A)> for Message<'a> {
 
 /// Parser entry-point.
 pub fn parse(input: &str) -> IResult<&str, Vec<MessageChain<'_>>> {
-    let (rest, chains) = all_consuming(many0(delimited(
-        many0(span::wcpad),
-        message_chain,
-        many0(span::wcpad),
-    )))(input)?;
+    let delimited_parser = delimited(many0(span::wcpad), message_chain, many0(span::wcpad));
+    let many_parser = many0(delimited_parser);
+    let (rest, chains) = all_consuming(many_parser).parse(input)?;
 
     Ok((rest, chains.into_par_iter().map(|c| c.sort()).collect()))
 }
 
 fn message_chain(input: &str) -> IResult<&str, MessageChain<'_>> {
-    let (input, messages) = many1(message)(input)?;
-    let (input, _) = opt(span::terminator)(input)?;
+    let (input, messages) = many1(message).parse(input)?;
+    let (input, _) = opt(span::terminator).parse(input)?;
     Ok((input, MessageChain::new(messages)))
 }
 
 fn message(input: &str) -> IResult<&str, Message<'_>> {
-    let (rest, _) = many0(span::scpad)(input)?;
+    let (rest, _) = many0(span::scpad).parse(input)?;
     let (rest, symbol) = symbol(rest)?;
-    let (rest, _) = opt(span::scpad)(rest)?;
-    let (rest, args) = opt(arguments)(rest)?;
+    let (rest, _) = many0(span::scpad).parse(rest)?;
+    let (rest, args) = opt(arguments).parse(rest)?;
     Ok((rest, Message::new(symbol, args.unwrap_or_default())))
 }
 
@@ -243,13 +230,14 @@ fn arguments(input: &str) -> IResult<&str, Vec<Argument<'_>>> {
         ),
         delimited(char('['), separated_list0(char(','), argument), char(']')),
         delimited(char('{'), separated_list0(char(','), argument), char('}')),
-    ))(input)
+    ))
+    .parse(input)
 }
 
 fn argument(input: &str) -> IResult<&str, Argument<'_>> {
-    let (input, _) = many0(span::wcpad)(input)?;
-    let (input, messages) = many1(message_chain)(input)?;
-    let (input, _) = many0(span::wcpad)(input)?;
+    let (input, _) = many0(span::wcpad).parse(input)?;
+    let (input, messages) = many1(message_chain).parse(input)?;
+    let (input, _) = many0(span::wcpad).parse(input)?;
     Ok((input, Argument::new(messages)))
 }
 

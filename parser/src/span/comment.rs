@@ -1,25 +1,25 @@
 use nom::{
+    IResult, Parser,
     branch::alt,
     bytes::complete::{is_not, tag, take_until},
     character::complete::line_ending,
     combinator::value,
-    sequence::tuple,
-    IResult,
 };
 
 pub(crate) fn comment(input: &str) -> IResult<&str, ()> {
-    alt((line_comment, block_comment))(input)
+    alt((line_comment, block_comment)).parse(input)
 }
 
 fn line_comment(input: &str) -> IResult<&str, ()> {
     value(
         (),
-        tuple((alt((tag("#"), tag("//"))), is_not("\n\r"), line_ending)),
-    )(input)
+        (alt((tag("#"), tag("//"))), is_not("\n\r"), line_ending),
+    )
+    .parse(input)
 }
 
 fn block_comment(input: &str) -> IResult<&str, ()> {
-    value((), tuple((tag("/*"), take_until("*/"), tag("*/"))))(input)
+    value((), (tag("/*"), take_until("*/"), tag("*/"))).parse(input)
 }
 
 #[cfg(test)]

@@ -1,41 +1,41 @@
 mod comment;
 
 use nom::{
+    IResult, Parser,
     branch::alt,
     bytes::complete::tag,
     character::complete::{char, line_ending, one_of},
     combinator::{opt, recognize, value},
-    sequence::tuple,
-    IResult,
 };
 
 use comment::comment;
 
 pub(crate) fn scpad(input: &str) -> IResult<&str, ()> {
-    value((), alt((separator, comment)))(input)
+    value((), alt((separator, comment))).parse(input)
 }
 
 pub(crate) fn wcpad(input: &str) -> IResult<&str, ()> {
-    value((), alt((whitespace, comment)))(input)
+    value((), alt((whitespace, comment))).parse(input)
 }
 
 pub(crate) fn terminator(input: &str) -> IResult<&str, ()> {
     value(
         (),
         alt((
-            recognize(tuple((opt(separator), tag(";")))),
+            recognize((opt(separator), tag(";"))),
             recognize(line_ending),
-            recognize(tuple((char('\r'), opt(separator)))),
+            recognize((char('\r'), opt(separator))),
         )),
-    )(input)
+    )
+    .parse(input)
 }
 
 fn separator(input: &str) -> IResult<&str, ()> {
-    value((), alt((char(' '), char('\t'), char('\x0c'), char('\x0b'))))(input)
+    value((), alt((char(' '), char('\t'), char('\x0c'), char('\x0b')))).parse(input)
 }
 
 pub(crate) fn whitespace(input: &str) -> IResult<&str, ()> {
-    value((), one_of(" \t\r\n\x0b\x0c"))(input)
+    value((), one_of(" \t\r\n\x0b\x0c")).parse(input)
 }
 
 #[cfg(test)]

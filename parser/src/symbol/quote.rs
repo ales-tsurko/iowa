@@ -1,9 +1,9 @@
 use nom::{
+    IResult, Parser,
     branch::alt,
     bytes::complete::{tag, take_until},
     combinator::map,
     sequence::{delimited, preceded},
-    IResult,
 };
 
 /// Quote (string) token.
@@ -11,11 +11,12 @@ use nom::{
 pub struct Quote(String);
 
 pub(crate) fn quote(input: &str) -> IResult<&str, Quote> {
-    map(alt((tri_quote, mono_quote)), Quote)(input)
+    let quote_parser = alt((tri_quote, mono_quote));
+    map(quote_parser, Quote).parse(input)
 }
 
 fn mono_quote(input: &str) -> IResult<&str, String> {
-    preceded(tag("\""), unescape)(input)
+    preceded(tag("\""), unescape).parse(input)
 }
 
 fn unescape(input: &str) -> IResult<&str, String> {
@@ -57,7 +58,7 @@ fn unescape(input: &str) -> IResult<&str, String> {
                     return Err(nom::Err::Error(nom::error::Error::new(
                         input,
                         nom::error::ErrorKind::Fail,
-                    )))
+                    )));
                 }
             }
         } else if ch == '"' {
@@ -76,7 +77,8 @@ fn unescape(input: &str) -> IResult<&str, String> {
 }
 
 fn tri_quote(input: &str) -> IResult<&str, String> {
-    delimited(tag("\"\"\""), take_until("\"\"\""), tag("\"\"\""))(input)
+    delimited(tag("\"\"\""), take_until("\"\"\""), tag("\"\"\""))
+        .parse(input)
         .map(|(i, o)| (i, o.to_string()))
 }
 

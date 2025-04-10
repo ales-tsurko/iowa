@@ -1,12 +1,29 @@
 [workspace]
-resolver = "2"
-members = ["iowa-cli", "iowa-compiler", "iowa-parser"]
+resolver = "3"
+members = ["cli", "compiler", "parser"]
+
+[workspace.package]
+edition = "2024"
+authors = ["Ales Tsurko <ales.tsurko@gmail.com"]
 
 [workspace.dependencies]
 dyn-clone = "1.0"
-nom = { version = "7", default-features = false, features = ["alloc"] }
-rayon = "1.7"
-cranelift = "0.105"
+nom = { version = "8", default-features = false, features = ["alloc"] }
+rayon = "1.10"
+cranelift = "0.118"
 
 # inner dependencies
-iowa-parser = { path = "./iowa-parser" }
+iowa-parser = { path = "./parser" }
+
+[workspace.lints.clippy]
+all = "warn"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
+

@@ -1,11 +1,11 @@
 use nom::{
+    IResult, Parser,
     branch::alt,
     bytes::complete::tag,
     character::complete::{char, digit1, hex_digit1, one_of},
     combinator::{map_res, opt, recognize},
     multi::many1,
-    sequence::{pair, preceded, tuple},
-    IResult,
+    sequence::{pair, preceded},
 };
 
 /// The Number type.
@@ -30,41 +30,58 @@ impl From<u64> for Number {
 }
 
 pub(crate) fn number(input: &str) -> IResult<&str, Number> {
-    alt((hex_number, decimal_number))(input)
+    alt((hex_number, decimal_number)).parse(input)
 }
 
 // Define a parser for hexadecimal digits
 fn hex_number(input: &str) -> IResult<&str, Number> {
-    map_res(
-        preceded(alt((tag("0x"), tag("0X"))), recognize(many1(hex_digit1))),
-        |out: &str| u64::from_str_radix(out, 16).map(Number::Hex),
-    )(input)
+    let hex_tag = alt((tag("0x"), tag("0X")));
+    let hex_digits = recognize(many1(hex_digit1));
+    let preceded_parser = preceded(hex_tag, hex_digits);
+
+    map_res(preceded_parser, |out: &str| {
+        u64::from_str_radix(out, 16).map(Number::Hex)
+    })
+    .parse(input)
 }
 
 // Define a parser for decimal numbers
 fn decimal_number(input: &str) -> IResult<&str, Number> {
-    let num = recognize(pair(
-        opt(one_of("+-")),
-        alt((
-            // .42
-            recognize(tuple((
-                char('.'),
-                digit1,
-                opt(tuple((one_of("eE"), opt(one_of("+-")), digit1))),
-            ))), // 42e42 and 42.42e42
-            recognize(tuple((
-                digit1,
-                opt(preceded(char('.'), digit1)),
-                one_of("eE"),
-                opt(one_of("+-")),
-                digit1,
-            ))), // 42. and 42.42
-            recognize(tuple((digit1, char('.'), opt(digit1)))),
-            // 42
-            recognize(digit1),
-        )),
+    // .42
+    let decimal_point_digits = recognize((
+        char('.'),
+        digit1,
+        opt((one_of("eE"), opt(one_of("+-")), digit1)),
     ));
-    map_res(num, |out: &str| out.parse::<f64>().map(Number::Decimal))(input)
+
+    // 42e42 and 42.42e42
+    let sci_notation = recognize((
+        digit1,
+        opt(preceded(char('.'), digit1)),
+        one_of("eE"),
+        opt(one_of("+-")),
+        digit1,
+    ));
+
+    // 42. and 42.42
+    let digits_decimal_point = recognize((digit1, char('.'), opt(digit1)));
+
+    // 42
+    let just_digits = recognize(digit1);
+
+    let number_formats = alt((
+        decimal_point_digits,
+        sci_notation,
+        digits_decimal_point,
+        just_digits,
+    ));
+
+    let sign_and_number = recognize(pair(opt(one_of("+-")), number_formats));
+
+    map_res(sign_and_number, |out: &str| {
+        out.parse::<f64>().map(Number::Decimal)
+    })
+    .parse(input)
 }
 
 #[cfg(test)]
