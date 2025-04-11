@@ -1,5 +1,6 @@
 /target
 /Cargo.lock
+ioc-src
 *.code-workspace
 .DS_Store
 .nvim
