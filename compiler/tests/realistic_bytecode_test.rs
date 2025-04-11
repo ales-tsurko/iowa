@@ -4,7 +4,7 @@ use iowa_compiler::runtime::runtime::{Runtime, Value};
 fn test_iterative_fibonacci() {
     // Create a new runtime
     let mut runtime = Runtime::new();
-    
+
     // Create a fibonacci method with an iterative implementation to avoid stack overflow
     let method_source = r#"
         // Handle base cases
@@ -30,20 +30,22 @@ fn test_iterative_fibonacci() {
         
         return b
     "#;
-    
-    let method_id = runtime.create_method(vec!["n".to_string()], method_source).unwrap();
-    
+
+    let method_id = runtime
+        .create_method(vec!["n".to_string()], method_source)
+        .unwrap();
+
     // Create a receiver object and assign the method
     let lobby = runtime.lobby();
-    
+
     if let Some(obj) = runtime.memory_mut().get_object_mut(lobby) {
         obj.set_slot("fibonacci".to_string(), Value::Object(method_id));
     }
-    
+
     // Calculate fibonacci(6) which should be 8
     let args = vec![Value::Number(6.0)];
     runtime.push_call_frame(method_id, lobby, "fibonacci".to_string(), args.clone());
-    
+
     // Call the method and check the result
     let result = runtime.dispatch_message(Value::Object(lobby), "fibonacci", args);
     assert_eq!(result, Value::Number(8.0));
@@ -53,7 +55,7 @@ fn test_iterative_fibonacci() {
 fn test_object_creation_and_manipulation() {
     // Create a new runtime
     let mut runtime = Runtime::new();
-    
+
     // Create a method that creates and manipulates an object
     let method_source = r#"
         // Create a new object
@@ -76,42 +78,53 @@ fn test_object_creation_and_manipulation() {
         
         return person
     "#;
-    
-    let create_person_id = runtime.create_method(
-        vec!["name".to_string(), "age".to_string()], 
-        method_source
-    ).unwrap();
-    
+
+    let create_person_id = runtime
+        .create_method(vec!["name".to_string(), "age".to_string()], method_source)
+        .unwrap();
+
     // Assign the method to the Lobby
     let lobby = runtime.lobby();
-    
+
     if let Some(obj) = runtime.memory_mut().get_object_mut(lobby) {
         obj.set_slot("createPerson".to_string(), Value::Object(create_person_id));
     }
-    
+
     // Call the method to create a person object
     let args = vec![Value::String("John".to_string()), Value::Number(30.0)];
-    runtime.push_call_frame(create_person_id, lobby, "createPerson".to_string(), args.clone());
+    runtime.push_call_frame(
+        create_person_id,
+        lobby,
+        "createPerson".to_string(),
+        args.clone(),
+    );
     let person = runtime.dispatch_message(Value::Object(lobby), "createPerson", args);
-    
+
     // The person should be an object reference
     assert!(matches!(person, Value::Object(_)));
-    
+
     // Get the description
     if let Value::Object(person_id) = person {
         // Call the description method
         runtime.push_call_frame(0, person_id, "description".to_string(), vec![]);
         let description = runtime.dispatch_message(Value::Object(person_id), "description", vec![]);
-        assert_eq!(description, Value::String("John is 30 years old".to_string()));
-        
+        assert_eq!(
+            description,
+            Value::String("John is 30 years old".to_string())
+        );
+
         // Call the birthday method
         runtime.push_call_frame(0, person_id, "birthday".to_string(), vec![]);
         runtime.dispatch_message(Value::Object(person_id), "birthday", vec![]);
-        
+
         // Get the description again to verify age increased
         runtime.push_call_frame(0, person_id, "description".to_string(), vec![]);
-        let description_after = runtime.dispatch_message(Value::Object(person_id), "description", vec![]);
-        assert_eq!(description_after, Value::String("John is 31 years old".to_string()));
+        let description_after =
+            runtime.dispatch_message(Value::Object(person_id), "description", vec![]);
+        assert_eq!(
+            description_after,
+            Value::String("John is 31 years old".to_string())
+        );
     } else {
         panic!("Expected an object but got: {:?}", person);
     }
@@ -121,7 +134,7 @@ fn test_object_creation_and_manipulation() {
 fn test_complex_control_flow() {
     // Create a new runtime
     let mut runtime = Runtime::new();
-    
+
     // Create a method with complex nested if statements
     let method_source = r#"
         result := nil
@@ -151,31 +164,37 @@ fn test_complex_control_flow() {
         
         return result
     "#;
-    
-    let method_id = runtime.create_method(
-        vec!["x".to_string(), "y".to_string(), "z".to_string()], 
-        method_source
-    ).unwrap();
-    
+
+    let method_id = runtime
+        .create_method(
+            vec!["x".to_string(), "y".to_string(), "z".to_string()],
+            method_source,
+        )
+        .unwrap();
+
     // Assign the method to the Lobby
     let lobby = runtime.lobby();
-    
+
     if let Some(obj) = runtime.memory_mut().get_object_mut(lobby) {
         obj.set_slot("categorize".to_string(), Value::Object(method_id));
     }
-    
+
     // Test case 1: all large
-    let args1 = vec![Value::Number(15.0), Value::Number(15.0), Value::Number(15.0)];
+    let args1 = vec![
+        Value::Number(15.0),
+        Value::Number(15.0),
+        Value::Number(15.0),
+    ];
     runtime.push_call_frame(method_id, lobby, "categorize".to_string(), args1.clone());
     let result1 = runtime.dispatch_message(Value::Object(lobby), "categorize", args1);
     assert_eq!(result1, Value::String("all large".to_string()));
-    
+
     // Test case 2: only x large
     let args2 = vec![Value::Number(15.0), Value::Number(5.0), Value::Number(5.0)];
     runtime.push_call_frame(method_id, lobby, "categorize".to_string(), args2.clone());
     let result2 = runtime.dispatch_message(Value::Object(lobby), "categorize", args2);
     assert_eq!(result2, Value::String("only x large".to_string()));
-    
+
     // Test case 3: none large
     let args3 = vec![Value::Number(5.0), Value::Number(5.0), Value::Number(5.0)];
     runtime.push_call_frame(method_id, lobby, "categorize".to_string(), args3.clone());
@@ -187,7 +206,7 @@ fn test_complex_control_flow() {
 fn test_complex_factorial() {
     // Create a new runtime
     let mut runtime = Runtime::new();
-    
+
     // Create a factorial method with error handling and optimization
     let method_source = r#"
         // Handle negative input
@@ -228,34 +247,36 @@ fn test_complex_factorial() {
         iterFactorial()
         return result
     "#;
-    
-    let method_id = runtime.create_method(vec!["n".to_string()], method_source).unwrap();
-    
+
+    let method_id = runtime
+        .create_method(vec!["n".to_string()], method_source)
+        .unwrap();
+
     // Assign the method to the Lobby
     let lobby = runtime.lobby();
-    
+
     if let Some(obj) = runtime.memory_mut().get_object_mut(lobby) {
         obj.set_slot("factorial".to_string(), Value::Object(method_id));
     }
-    
+
     // Test factorial(0)
     let args0 = vec![Value::Number(0.0)];
     runtime.push_call_frame(method_id, lobby, "factorial".to_string(), args0.clone());
     let result0 = runtime.dispatch_message(Value::Object(lobby), "factorial", args0);
     assert_eq!(result0, Value::Number(1.0));
-    
+
     // Test factorial(5) - should use the optimized path
     let args5 = vec![Value::Number(5.0)];
     runtime.push_call_frame(method_id, lobby, "factorial".to_string(), args5.clone());
     let result5 = runtime.dispatch_message(Value::Object(lobby), "factorial", args5);
     assert_eq!(result5, Value::Number(120.0));
-    
+
     // Test factorial(6) - should use recursion
     let args6 = vec![Value::Number(6.0)];
     runtime.push_call_frame(method_id, lobby, "factorial".to_string(), args6.clone());
     let result6 = runtime.dispatch_message(Value::Object(lobby), "factorial", args6);
     assert_eq!(result6, Value::Number(720.0));
-    
+
     // Test factorial(-1) - should return nil
     let args_neg = vec![Value::Number(-1.0)];
     runtime.push_call_frame(method_id, lobby, "factorial".to_string(), args_neg.clone());
@@ -267,10 +288,10 @@ fn test_complex_factorial() {
 fn test_method_composition() {
     // Create a new runtime
     let mut runtime = Runtime::new();
-    
+
     // Create a calculator object with multiple methods
     let calculator_id = runtime.alloc_object(runtime.prototypes().object);
-    
+
     // Create a simple calculator object with methods
     let calc_source = r#"
         // Create a new calculator object
@@ -288,23 +309,31 @@ fn test_method_composition() {
         
         return calc
     "#;
-    
+
     let create_calc_id = runtime.create_method(vec![], calc_source).unwrap();
-    
+
     // Add method to Lobby
     let lobby = runtime.lobby();
-    
+
     if let Some(obj) = runtime.memory_mut().get_object_mut(lobby) {
-        obj.set_slot("createCalculator".to_string(), Value::Object(create_calc_id));
+        obj.set_slot(
+            "createCalculator".to_string(),
+            Value::Object(create_calc_id),
+        );
     }
-    
+
     // Call method to create calculator
-    runtime.push_call_frame(create_calc_id, lobby, "createCalculator".to_string(), vec![]);
+    runtime.push_call_frame(
+        create_calc_id,
+        lobby,
+        "createCalculator".to_string(),
+        vec![],
+    );
     let calculator = runtime.dispatch_message(Value::Object(lobby), "createCalculator", vec![]);
-    
+
     // The calculator should be an object
     assert!(matches!(calculator, Value::Object(_)));
-    
+
     // Test the sumOfSquares method (3^2 + 4^2 = 9 + 16 = 25)
     let args = vec![Value::Number(3.0), Value::Number(4.0)];
     if let Value::Object(calc_id) = calculator {
@@ -320,7 +349,7 @@ fn test_method_composition() {
 fn test_loop_with_recursive_helper() {
     // Create a new runtime
     let mut runtime = Runtime::new();
-    
+
     // Create a method that implements a loop using recursion
     let method_source = r#"
         // Helper function to implement the loop
@@ -334,22 +363,24 @@ fn test_loop_with_recursive_helper() {
         // Start the loop with initial state
         return loopHelper(1, max, 0)
     "#;
-    
-    let method_id = runtime.create_method(vec!["max".to_string()], method_source).unwrap();
-    
+
+    let method_id = runtime
+        .create_method(vec!["max".to_string()], method_source)
+        .unwrap();
+
     // Assign the method to the Lobby
     let lobby = runtime.lobby();
-    
+
     if let Some(obj) = runtime.memory_mut().get_object_mut(lobby) {
         obj.set_slot("sumUpTo".to_string(), Value::Object(method_id));
     }
-    
+
     // Test summing numbers from 1 to 5 = 15
     let args5 = vec![Value::Number(5.0)];
     runtime.push_call_frame(method_id, lobby, "sumUpTo".to_string(), args5.clone());
     let result5 = runtime.dispatch_message(Value::Object(lobby), "sumUpTo", args5);
     assert_eq!(result5, Value::Number(15.0)); // 1+2+3+4+5 = 15
-    
+
     // Test summing numbers from 1 to 10 = 55
     let args10 = vec![Value::Number(10.0)];
     runtime.push_call_frame(method_id, lobby, "sumUpTo".to_string(), args10.clone());

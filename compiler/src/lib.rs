@@ -30,19 +30,19 @@ pub enum IoValue {
 }
 
 /// Compile the Io message chain for JIT execution
-/// 
+///
 /// This compiles Io code to WebAssembly first, then uses Cranelift to JIT-compile
 /// the WASM module for execution.
 pub fn compile_jit(chain: &MessageChain) -> backend::jit::JitFunction {
     // Create a new runtime instance - thread-safe with Arc<Mutex<>>
     let runtime = std::sync::Arc::new(std::sync::Mutex::new(runtime::runtime::Runtime::new()));
-    
+
     // First generate WASM as our primary IR
     let wasm_module = compile_wasm(chain);
-    
+
     // Create JIT backend
     let mut jit_builder = backend::jit::JitBuilder::new();
-    
+
     // Set the WASM module to use (source of truth)
     jit_builder.set_wasm_module(wasm_module);
 
@@ -54,12 +54,12 @@ pub fn compile_jit(chain: &MessageChain) -> backend::jit::JitFunction {
 }
 
 /// Compile the Io message chain to a WebAssembly module
-/// 
+///
 /// This is the primary compilation path - all Io code is compiled to WASM.
 pub fn compile_wasm(chain: &MessageChain) -> Vec<u8> {
     // Create a new runtime instance - thread-safe with Arc<Mutex<>>
     let runtime = std::sync::Arc::new(std::sync::Mutex::new(runtime::runtime::Runtime::new()));
-    
+
     // Create WASM backend
     let mut wasm_builder = backend::wasm::WasmBuilder::new();
 
@@ -71,13 +71,18 @@ pub fn compile_wasm(chain: &MessageChain) -> Vec<u8> {
 }
 
 /// Compile the Io message chain and return a WASM module with a Wasmer runtime instance
-pub fn compile_wasmer(chain: &MessageChain) -> (Vec<u8>, std::sync::Arc<std::sync::Mutex<runtime::runtime::Runtime>>) {
+pub fn compile_wasmer(
+    chain: &MessageChain,
+) -> (
+    Vec<u8>,
+    std::sync::Arc<std::sync::Mutex<runtime::runtime::Runtime>>,
+) {
     // Create a new runtime instance - thread-safe with Arc<Mutex<>>
     let runtime = std::sync::Arc::new(std::sync::Mutex::new(runtime::runtime::Runtime::new()));
-    
+
     // Compile to WASM
     let wasm_bytes = compile_wasm(chain);
-    
+
     // Return both the WASM module and the runtime
     (wasm_bytes, runtime)
 }
