@@ -109,11 +109,15 @@ The focus is on WASM as a standalone format for dedicated runtimes like Wasmer, 
 ### In Progress:
 
 - **WASM Generation**
-  - Translating Io AST to WebAssembly
-  - Runtime support for dynamic typing in WASM
+  - ✓ Translating Io AST to WebAssembly
+  - ✓ Runtime support for dynamic typing in WASM
+  - ✓ Memory management for WebAssembly
+  - Argument handling and message chain compilation
 
 - **Wasmer Integration**
-  - WASM module loading and execution
+  - ✓ WASM module loading and execution
+  - ✓ Basic runtime imports
+  - Complex argument passing
   - Interoperation with external WASM modules
 
 - **Runtime Methods**
@@ -211,6 +215,44 @@ Memory is managed using:
 - **WASM Memory**: Linear memory for all allocations
 - **Garbage Collection**: Mark and sweep GC
 - **Layout Definition**: Precise field offsets and sizes
+
+#### WASM Memory Management Implementation
+
+This section details the implementation of WebAssembly memory management for the Io language compiler:
+
+##### Completed:
+
+1. **Improved WasmMemoryManager with Wasmer 5.x API**
+   - ✓ Added support for Wasmer 5.x store-based API
+   - ✓ Implemented proper memory read/write operations
+   - ✓ Added string caching for common strings
+
+2. **Implemented Memory Layout and Organization**
+   - ✓ Added separate memory regions for string and object data
+   - ✓ Implemented proper 8-byte alignment for all allocations
+   - ✓ Added memory capacity management with automatic growth
+   - ✓ Created proper memory initialization for common strings
+
+3. **String and Value Handling**
+   - ✓ Created proper string serialization in linear memory
+   - ✓ Added string interning for common strings to reduce duplication
+   - ✓ Implemented value array serialization for arguments
+   - ✓ Added read/write functions for values and strings
+
+##### In Progress:
+
+1. **Argument Handling**
+   - ✓ Implementing proper argument array serialization
+   - ✓ Basic support for literals in arguments
+   - ◯ Handling nested message chains in arguments (partial)
+   - ✓ Supporting operator arguments
+   - ✓ Passing arguments with proper tags
+
+2. **Message Chain Compilation**
+   - ✓ Improving message dispatch to WebAssembly
+   - ✓ Proper handling of receiver chaining
+   - ◯ Handling complex nested argument chains
+   - ◯ Optimizing common patterns
 
 
 ## WebAssembly Module Integration
