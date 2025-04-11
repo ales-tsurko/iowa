@@ -144,6 +144,7 @@ fn call_alloc_function(
 
     // Add parameters (typically size)
     for _ in args {
+        // For allocation functions we need to ensure correct types
         sig.params
             .push(cranelift_codegen::ir::AbiParam::new(types::I32));
     }
@@ -163,8 +164,28 @@ fn call_alloc_function(
         colocated: false,
     });
 
-    // Call the function
-    let inst = builder.ins().call(callee, args);
+    // Handle potential type conversions for arguments
+    let mut converted_args = Vec::with_capacity(args.len());
+    for arg in args {
+        let arg_type = builder.func.dfg.value_type(*arg);
+
+        // If the argument is not i32, we need to convert it
+        if arg_type != types::I32 {
+            // Convert the argument to i32
+            let converted = if arg_type == types::I64 {
+                builder.ins().ireduce(types::I32, *arg)
+            } else {
+                // For other types, try to convert to i32
+                *arg
+            };
+            converted_args.push(converted);
+        } else {
+            converted_args.push(*arg);
+        }
+    }
+
+    // Call the function with converted arguments
+    let inst = builder.ins().call(callee, &converted_args);
     builder.inst_results(inst)[0]
 }
 

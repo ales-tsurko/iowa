@@ -160,6 +160,25 @@ fn wasm_type_from_cranelift(ty: ir::Type) -> wasm_encoder::ValType {
     }
 }
 
+/// Determine if a Cranelift type needs conversion to be compatible with WASM
+fn needs_type_conversion(from: ir::Type, to: ir::Type) -> bool {
+    // The most common issue is converting between i32 and i64
+    (from == ir::types::I32 && to == ir::types::I64)
+        || (from == ir::types::I64 && to == ir::types::I32)
+}
+
+/// Generate WebAssembly instruction for type conversion
+fn insert_type_conversion(func: &mut wasm_encoder::Function, from: ir::Type, to: ir::Type) {
+    if from == ir::types::I32 && to == ir::types::I64 {
+        // Convert i32 to i64
+        func.instruction(&wasm_encoder::Instruction::I64ExtendI32S);
+    } else if from == ir::types::I64 && to == ir::types::I32 {
+        // Convert i64 to i32 (with possible truncation)
+        func.instruction(&wasm_encoder::Instruction::I32WrapI64);
+    }
+    // Add other conversions as needed (f32/f64 etc.)
+}
+
 /// Create a WebAssembly function from a Cranelift IR function
 fn create_wasm_function_from_ir(function: &ir::Function) -> Function {
     use cranelift_codegen::ir::Opcode;
@@ -323,10 +342,35 @@ fn create_wasm_function_from_ir(function: &ir::Function) -> Function {
                         continue;
                     }
 
-                    // Load operands from locals if needed
-                    for &arg in &args[0..2] {
-                        if let Some(&local) = value_map.get(&arg) {
-                            func.instruction(&WasmInst::LocalGet(local));
+                    // Load operands from locals if needed and handle type conversions
+                    let first_type = function.dfg.value_type(args[0]);
+                    let second_type = function.dfg.value_type(args[1]);
+
+                    // We need to ensure both operands are of the same type
+                    let target_type = match (first_type, second_type) {
+                        // If both are the same, no conversion needed
+                        (t1, t2) if t1 == t2 => t1,
+                        // If one is i64 and the other is i32, convert i32 to i64
+                        (ir::types::I64, ir::types::I32) | (ir::types::I32, ir::types::I64) => {
+                            ir::types::I64
+                        }
+                        // Use the first type as default
+                        _ => first_type,
+                    };
+
+                    // Load and convert first operand if needed
+                    if let Some(&local) = value_map.get(&args[0]) {
+                        func.instruction(&WasmInst::LocalGet(local));
+                        if needs_type_conversion(first_type, target_type) {
+                            insert_type_conversion(&mut func, first_type, target_type);
+                        }
+                    }
+
+                    // Load and convert second operand if needed
+                    if let Some(&local) = value_map.get(&args[1]) {
+                        func.instruction(&WasmInst::LocalGet(local));
+                        if needs_type_conversion(second_type, target_type) {
+                            insert_type_conversion(&mut func, second_type, target_type);
                         }
                     }
 
@@ -395,6 +439,18 @@ fn create_wasm_function_from_ir(function: &ir::Function) -> Function {
                     if !args.is_empty() {
                         if let Some(&local) = value_map.get(&args[0]) {
                             func.instruction(&WasmInst::LocalGet(local));
+
+                            // Check if we need to convert the type to match function return type
+                            let arg_type = function.dfg.value_type(args[0]);
+                            if let Some(ret_type) = function.signature.returns.first() {
+                                if needs_type_conversion(arg_type, ret_type.value_type) {
+                                    insert_type_conversion(
+                                        &mut func,
+                                        arg_type,
+                                        ret_type.value_type,
+                                    );
+                                }
+                            }
                         }
                     }
 
@@ -452,6 +508,83 @@ fn validate_wasm_module(wasm_bytes: &[u8]) -> bool {
         Err(err) => {
             eprintln!("WASM validation error: {:?}", err);
 
+            // Check if the error might be related to type mismatch
+            let error_message = format!("{:?}", err);
+            if error_message.contains("type mismatch")
+                || error_message.contains("i32")
+                || error_message.contains("i64")
+            {
+                eprintln!(
+                    "\nPossible type mismatch between i32 and i64. This might indicate a need for type conversion."
+                );
+                eprintln!(
+                    "Check that all function parameters and return values match the expected types."
+                );
+                eprintln!("Common issues:");
+                eprintln!("  - Memory access functions expect i32 offsets");
+                eprintln!("  - Tagged values are i64 but many WASM functions expect i32");
+                eprintln!("  - Return values from functions may need explicit type conversion");
+
+                // Attempt to find the exact location of the problem
+                if let Some(pos) = error_message.find("offset 0x") {
+                    let offset_str = &error_message[pos + 9..];
+                    let end = offset_str.find(')').unwrap_or(offset_str.len());
+                    let hex = &offset_str[..end];
+                    if let Ok(err_offset) = u32::from_str_radix(hex, 16) {
+                        eprintln!(
+                            "\nTrying to identify function at offset 0x{:x}:",
+                            err_offset
+                        );
+
+                        // Find the function containing this offset
+                        let parser = wasmparser::Parser::new(0);
+                        for payload in parser.parse_all(wasm_bytes) {
+                            if let Ok(wasmparser::Payload::CodeSectionStart {
+                                count, range, ..
+                            }) = payload
+                            {
+                                eprintln!(
+                                    "  Code section starts at 0x{:x}, error at 0x{:x}",
+                                    range.start, err_offset
+                                );
+
+                                // Print info about where the error is relative to the code section
+                                let range_start = range.start as u32;
+                                let range_end = range.end as u32;
+                                if range_start <= err_offset && err_offset < range_end {
+                                    eprintln!(
+                                        "  Error is in code section, offset 0x{:x} from start",
+                                        err_offset - range_start
+                                    );
+
+                                    // Print bytes around error
+                                    let start_idx = if err_offset >= 10 {
+                                        (err_offset - 10) as usize
+                                    } else {
+                                        0
+                                    };
+                                    let end_idx =
+                                        std::cmp::min((err_offset + 10) as usize, wasm_bytes.len());
+
+                                    eprintln!("  Bytes around error:");
+                                    for (i, byte) in
+                                        wasm_bytes[start_idx..end_idx].iter().enumerate()
+                                    {
+                                        let pos = start_idx + i;
+                                        let indicator = if pos as u32 == err_offset {
+                                            " <-- ERROR"
+                                        } else {
+                                            ""
+                                        };
+                                        eprintln!("    0x{:04x}: 0x{:02x}{}", pos, byte, indicator);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Parse and print the module structure for debugging
             eprintln!("\nWASM module structure:");
             let parser = wasmparser::Parser::new(0);
@@ -462,6 +595,14 @@ fn validate_wasm_module(wasm_bytes: &[u8]) -> bool {
                     }
                     Ok(wasmparser::Payload::TypeSection(reader)) => {
                         eprintln!("Type section: count={}", reader.count());
+
+                        // Print more details about function signatures
+                        let types_reader = reader.clone().into_iter();
+                        for (i, ty_result) in types_reader.enumerate() {
+                            if let Ok(ty) = ty_result {
+                                eprintln!("  Function type #{}: {:?}", i, ty);
+                            }
+                        }
                     }
                     Ok(wasmparser::Payload::FunctionSection(reader)) => {
                         eprintln!("Function section: count={}", reader.count());
@@ -474,6 +615,17 @@ fn validate_wasm_module(wasm_bytes: &[u8]) -> bool {
                     }
                     Ok(wasmparser::Payload::ExportSection(reader)) => {
                         eprintln!("Export section: count={}", reader.count());
+
+                        // Print details about exports
+                        let exports = reader.clone().into_iter();
+                        for (i, export_result) in exports.enumerate() {
+                            if let Ok(export) = export_result {
+                                eprintln!(
+                                    "  Export #{}: name=\"{}\", kind={:?}, index={}",
+                                    i, export.name, export.kind, export.index
+                                );
+                            }
+                        }
                     }
                     Ok(payload) => {
                         // Other section types

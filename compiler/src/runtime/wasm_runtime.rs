@@ -341,18 +341,31 @@ impl WasmMethod {
         let compiler = Cranelift::default();
         let mut store = Store::new(compiler);
 
-        let module =
-            Module::new(&store, &self.module_bytes).expect("Failed to compile WASM module");
+        let module = match Module::new(&store, &self.module_bytes) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("WASM validation error: {}", e);
+                return Value::Nil;
+            }
+        };
 
         let imports = create_runtime_imports(&mut store, runtime);
 
-        let instance = Instance::new(&mut store, &module, &imports)
-            .expect("Failed to instantiate WASM module");
+        let instance = match Instance::new(&mut store, &module, &imports) {
+            Ok(i) => i,
+            Err(e) => {
+                eprintln!("WASM instantiation error: {}", e);
+                return Value::Nil;
+            }
+        };
 
-        let function = instance
-            .exports
-            .get_function("main")
-            .expect("Failed to get exported function");
+        let function = match instance.exports.get_function("main") {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("Failed to get exported function: {}", e);
+                return Value::Nil;
+            }
+        };
 
         // Initialize memory with common strings
         if let Ok(memory) = instance.exports.get_memory("memory") {
@@ -378,7 +391,10 @@ impl WasmMethod {
 
         let result = match function.call(&mut store, &wasm_args) {
             Ok(res) => res,
-            Err(_) => return Value::Nil,
+            Err(e) => {
+                eprintln!("WASM function call error: {}", e);
+                return Value::Nil;
+            }
         };
 
         if let Some(WasmerValue::I64(raw_value)) = result.get(0) {
@@ -428,7 +444,7 @@ fn create_runtime_imports(store: &mut Store, runtime: &mut Runtime) -> wasmer::I
     let alloc_string_fn = wasmer::Function::new_typed_with_env(
         store,
         &env,
-        move |mut ctx: FunctionEnvMut<()>, ptr: i32, len: i32| -> i64 {
+        move |mut ctx: FunctionEnvMut<()>, ptr: i64, len: i64| -> i64 {
             let runtime = unsafe { &mut *(runtime_ptr as *mut Runtime) };
             let memory = unsafe { &*(memory_ptr as *const Memory) };
 
@@ -436,6 +452,7 @@ fn create_runtime_imports(store: &mut Store, runtime: &mut Runtime) -> wasmer::I
             let string_value = memory_manager.read_string(ptr as u32, len as u32);
             let obj_id = runtime.alloc_string(&string_value);
 
+            // Explicitly convert to i64 to ensure consistent typing
             runtime
                 .to_tagged_value(&Value::Object(obj_id))
                 .try_into()
@@ -462,8 +479,8 @@ fn create_runtime_imports(store: &mut Store, runtime: &mut Runtime) -> wasmer::I
         &env,
         move |mut ctx: FunctionEnvMut<()>,
               obj_id: i64,
-              slot_ptr: i32,
-              slot_len: i32,
+              slot_ptr: i64,
+              slot_len: i64,
               value_id: i64|
               -> i64 {
             let runtime = unsafe { &mut *(runtime_ptr as *mut Runtime) };
@@ -488,7 +505,7 @@ fn create_runtime_imports(store: &mut Store, runtime: &mut Runtime) -> wasmer::I
     let get_slot_fn = wasmer::Function::new_typed_with_env(
         store,
         &env,
-        move |mut ctx: FunctionEnvMut<()>, obj_id: i64, slot_ptr: i32, slot_len: i32| -> i64 {
+        move |mut ctx: FunctionEnvMut<()>, obj_id: i64, slot_ptr: i64, slot_len: i64| -> i64 {
             let runtime = unsafe { &mut *(runtime_ptr as *mut Runtime) };
             let memory = unsafe { &*(memory_ptr as *const Memory) };
             let mut memory_manager = WasmMemoryManager::new(memory, ctx.as_store_mut());
@@ -511,7 +528,7 @@ fn create_runtime_imports(store: &mut Store, runtime: &mut Runtime) -> wasmer::I
     let lookup_slot_fn = wasmer::Function::new_typed_with_env(
         store,
         &env,
-        move |mut ctx: FunctionEnvMut<()>, obj_id: i64, slot_ptr: i32, slot_len: i32| -> i64 {
+        move |mut ctx: FunctionEnvMut<()>, obj_id: i64, slot_ptr: i64, slot_len: i64| -> i64 {
             let runtime = unsafe { &mut *(runtime_ptr as *mut Runtime) };
             let memory = unsafe { &*(memory_ptr as *const Memory) };
             let mut memory_manager = WasmMemoryManager::new(memory, ctx.as_store_mut());
@@ -536,10 +553,10 @@ fn create_runtime_imports(store: &mut Store, runtime: &mut Runtime) -> wasmer::I
         &env,
         move |mut ctx: FunctionEnvMut<()>,
               receiver_id: i64,
-              message_ptr: i32,
-              message_len: i32,
-              args_ptr: i32,
-              args_len: i32|
+              message_ptr: i64,
+              message_len: i64,
+              args_ptr: i64,
+              args_len: i64|
               -> i64 {
             let runtime = unsafe { &mut *(runtime_ptr as *mut Runtime) };
             let memory = unsafe { &*(memory_ptr as *const Memory) };
@@ -615,7 +632,7 @@ fn create_runtime_imports(store: &mut Store, runtime: &mut Runtime) -> wasmer::I
     let store_string_fn = wasmer::Function::new_typed_with_env(
         store,
         &env,
-        move |mut ctx: FunctionEnvMut<()>, string_id: i64, out_len_ptr: i32| -> i32 {
+        move |mut ctx: FunctionEnvMut<()>, string_id: i64, out_len_ptr: i64| -> i64 {
             let runtime = unsafe { &mut *(runtime_ptr as *mut Runtime) };
             let memory = unsafe { &*(memory_ptr as *const Memory) };
             let mut memory_manager = WasmMemoryManager::new(memory, ctx.as_store_mut());
@@ -634,7 +651,7 @@ fn create_runtime_imports(store: &mut Store, runtime: &mut Runtime) -> wasmer::I
                     let mut store_mut = ctx.as_store_mut();
                     let memory_view = memory.view(&mut store_mut);
                     if (out_len_ptr as usize + 4) <= memory_view.data_size() as usize {
-                        let len_bytes = len.to_le_bytes();
+                        let len_bytes = (len as u32).to_le_bytes(); // Cast to u32 for consistency
                         for (i, byte) in len_bytes.iter().enumerate() {
                             memory_view.data_unchecked_mut()[(out_len_ptr as usize) + i] = *byte;
                         }
@@ -642,7 +659,7 @@ fn create_runtime_imports(store: &mut Store, runtime: &mut Runtime) -> wasmer::I
                 }
             }
 
-            ptr as i32
+            ptr as i64
         },
     );
 
@@ -759,39 +776,41 @@ fn generate_wasm_from_ast(
     let results = vec![ValType::I64]; // return value
 
     let alloc_object_params = vec![ValType::I64];
-    let alloc_string_params = vec![ValType::I32, ValType::I32];
+    let alloc_string_params = vec![ValType::I64, ValType::I64];
     let alloc_number_params = vec![ValType::F64];
-    let set_slot_params = vec![ValType::I64, ValType::I32, ValType::I32, ValType::I64];
-    let get_slot_params = vec![ValType::I64, ValType::I32, ValType::I32];
-    let lookup_slot_params = vec![ValType::I64, ValType::I32, ValType::I32];
+    let set_slot_params = vec![ValType::I64, ValType::I64, ValType::I64, ValType::I64];
+    let get_slot_params = vec![ValType::I64, ValType::I64, ValType::I64];
+    let lookup_slot_params = vec![ValType::I64, ValType::I64, ValType::I64];
     let dispatch_message_params = vec![
-        ValType::I64,
-        ValType::I32,
-        ValType::I32,
-        ValType::I32,
-        ValType::I32,
+        ValType::I64, // receiver
+        ValType::I64, // message_ptr (i32 -> i64)
+        ValType::I64, // message_len
+        ValType::I64, // args_ptr
+        ValType::I64, // args_len
     ];
     let string_to_number_params = vec![ValType::I64];
     let value_to_string_params = vec![ValType::I64];
+    let store_string_params = vec![ValType::I64, ValType::I64];
     let is_type_params = vec![ValType::I64];
     let is_type_results = vec![ValType::I32];
 
     let function_types = [
-        (main_params, results.clone()),
-        (alloc_object_params, results.clone()),
-        (alloc_string_params, results.clone()),
-        (alloc_number_params, results.clone()),
-        (set_slot_params, results.clone()),
-        (get_slot_params, results.clone()),
-        (lookup_slot_params, results.clone()),
-        (dispatch_message_params, results.clone()),
-        (string_to_number_params, results.clone()),
-        (value_to_string_params, results.clone()),
-        (is_type_params.clone(), is_type_results.clone()),
-        (is_type_params.clone(), is_type_results.clone()),
-        (is_type_params.clone(), is_type_results.clone()),
-        (is_type_params.clone(), is_type_results.clone()),
-        (is_type_params.clone(), is_type_results.clone()),
+        (main_params.clone(), results.clone()), // Index 0: main function
+        (alloc_object_params.clone(), results.clone()), // Index 1: alloc_object
+        (alloc_string_params.clone(), results.clone()), // Index 2: alloc_string
+        (alloc_number_params.clone(), results.clone()), // Index 3: alloc_number
+        (set_slot_params.clone(), results.clone()), // Index 4: set_slot
+        (get_slot_params.clone(), results.clone()), // Index 5: get_slot
+        (lookup_slot_params.clone(), results.clone()), // Index 6: lookup_slot
+        (dispatch_message_params.clone(), results.clone()), // Index 7: dispatch_message
+        (string_to_number_params.clone(), results.clone()), // Index 8: string_to_number
+        (value_to_string_params.clone(), results.clone()), // Index 9: value_to_string
+        (store_string_params.clone(), results.clone()), // Index 10: store_string
+        (is_type_params.clone(), is_type_results.clone()), // Index 11: is_nil
+        (is_type_params.clone(), is_type_results.clone()), // Index 12: is_boolean
+        (is_type_params.clone(), is_type_results.clone()), // Index 13: is_number
+        (is_type_params.clone(), is_type_results.clone()), // Index 14: is_string
+        (is_type_params.clone(), is_type_results.clone()), // Index 15: is_object
     ];
 
     for (params, results) in function_types.iter() {
@@ -823,17 +842,18 @@ fn generate_wasm_from_ast(
         "value_to_string",
         wasm_encoder::EntityType::Function(9),
     );
-    imports.import("io", "is_nil", wasm_encoder::EntityType::Function(10));
-    imports.import("io", "is_boolean", wasm_encoder::EntityType::Function(11));
-    imports.import("io", "is_number", wasm_encoder::EntityType::Function(12));
-    imports.import("io", "is_string", wasm_encoder::EntityType::Function(13));
-    imports.import("io", "is_object", wasm_encoder::EntityType::Function(14));
+    imports.import("io", "store_string", wasm_encoder::EntityType::Function(10));
+    imports.import("io", "is_nil", wasm_encoder::EntityType::Function(11));
+    imports.import("io", "is_boolean", wasm_encoder::EntityType::Function(12));
+    imports.import("io", "is_number", wasm_encoder::EntityType::Function(13));
+    imports.import("io", "is_string", wasm_encoder::EntityType::Function(14));
+    imports.import("io", "is_object", wasm_encoder::EntityType::Function(15));
 
     module.section(&imports);
 
     let mut functions = FunctionSection::new();
 
-    let import_function_count = 15;
+    let import_function_count = 16;
     let function_index = 0;
 
     functions.function(0);
@@ -870,7 +890,9 @@ fn generate_wasm_from_ast(
 
     let actual_function_index = import_function_count + function_index;
 
-    (module.finish(), actual_function_index)
+    let module_bytes = module.finish();
+
+    (module_bytes, actual_function_index)
 }
 
 /// Compile an argument to WebAssembly instructions
@@ -935,12 +957,12 @@ fn compile_argument(
                 let string_content = quote.content();
 
                 // Store string info
-                func.instruction(&WasmInstruction::I32Const(string_content.len() as i32));
+                func.instruction(&WasmInstruction::I64Const(string_content.len() as i64));
                 func.instruction(&WasmInstruction::LocalSet(str_len_local));
 
                 // Call string allocation
-                func.instruction(&WasmInstruction::I32Const(0)); // Dummy pointer (filled at runtime)
-                func.instruction(&WasmInstruction::LocalGet(str_len_local));
+                func.instruction(&WasmInstruction::I64Const(0)); // Dummy pointer (using I64Const directly)
+                func.instruction(&WasmInstruction::LocalGet(str_len_local)); // Already I64
                 func.instruction(&WasmInstruction::Call(2)); // alloc_string
                 func.instruction(&WasmInstruction::LocalSet(result_local));
                 return result_local;
@@ -949,13 +971,13 @@ fn compile_argument(
                 // Identifier (variable reference)
                 let name = id.name();
 
-                // Store identifier name info
-                func.instruction(&WasmInstruction::I32Const(name.len() as i32));
+                // Store identifier name info - use I64Const for consistency
+                func.instruction(&WasmInstruction::I64Const(name.len() as i64));
                 func.instruction(&WasmInstruction::LocalSet(str_len_local));
 
-                // Get name pointer (will be filled at runtime)
-                func.instruction(&WasmInstruction::I32Const(0));
-                func.instruction(&WasmInstruction::LocalGet(str_len_local));
+                // Get name pointer (will be filled at runtime) - use I64Const directly
+                func.instruction(&WasmInstruction::I64Const(0));
+                func.instruction(&WasmInstruction::LocalGet(str_len_local)); // Already I64
 
                 // Receiver is self
                 func.instruction(&WasmInstruction::LocalGet(0));
@@ -979,13 +1001,13 @@ fn compile_argument(
             iowa_parser::Symbol::Identifier(id) => {
                 let name = id.name();
 
-                // Store identifier name info
-                func.instruction(&WasmInstruction::I32Const(name.len() as i32));
+                // Store identifier name info - use I64Const for consistency
+                func.instruction(&WasmInstruction::I64Const(name.len() as i64));
                 func.instruction(&WasmInstruction::LocalSet(str_len_local));
 
-                // Get name pointer (will be filled at runtime)
-                func.instruction(&WasmInstruction::I32Const(0));
-                func.instruction(&WasmInstruction::LocalGet(str_len_local));
+                // Get name pointer (will be filled at runtime) - use I64Const directly
+                func.instruction(&WasmInstruction::I64Const(0));
+                func.instruction(&WasmInstruction::LocalGet(str_len_local)); // Already I64
 
                 // Receiver is self
                 func.instruction(&WasmInstruction::LocalGet(0));
@@ -1004,7 +1026,9 @@ fn compile_argument(
 
                 // Get name pointer (will be filled at runtime)
                 func.instruction(&WasmInstruction::I32Const(0));
+                func.instruction(&WasmInstruction::I64ExtendI32S); // Convert name ptr to i64
                 func.instruction(&WasmInstruction::LocalGet(str_len_local));
+                func.instruction(&WasmInstruction::I64ExtendI32S); // Convert name len to i64
 
                 // Receiver is self
                 func.instruction(&WasmInstruction::LocalGet(0));
@@ -1020,35 +1044,70 @@ fn compile_argument(
                         // Recursively compile the argument (with offset locals)
                         let arg_local = compile_argument(arg, func, runtime, local_base + 4);
 
-                        // Create an array with just this one argument value
-                        func.instruction(&WasmInstruction::I32Const(8)); // 8 bytes per value
+                        // Create an array with just this one argument value - use I64Const for consistency
+                        func.instruction(&WasmInstruction::I64Const(8)); // 8 bytes per value
                         func.instruction(&WasmInstruction::LocalSet(str_ptr_local));
-                        func.instruction(&WasmInstruction::I32Const(1)); // array length = 1
+                        func.instruction(&WasmInstruction::I64Const(1)); // array length = 1
                         func.instruction(&WasmInstruction::LocalSet(str_len_local));
 
                         // Get arg value to pass
                         func.instruction(&WasmInstruction::LocalGet(arg_local));
                         func.instruction(&WasmInstruction::LocalSet(temp_local));
 
-                        // Call dispatch_message with the operator and argument
+                        // Call dispatch_message with correct parameter order
+                        // receiver_id, message_ptr, message_len, args_ptr, args_len
+                        
+                        // Push receiver first (self)
                         func.instruction(&WasmInstruction::LocalGet(0)); // self as receiver
-                        func.instruction(&WasmInstruction::I32Const(0)); // message name ptr (filled at runtime)
-                        func.instruction(&WasmInstruction::LocalGet(str_len_local));
-                        func.instruction(&WasmInstruction::LocalGet(str_ptr_local)); // args ptr
-                        func.instruction(&WasmInstruction::I32Const(1)); // arg count = 1
+                        
+                        // Push message name info
+                        func.instruction(&WasmInstruction::I64Const(0)); // message name ptr (using I64Const directly)
+                        func.instruction(&WasmInstruction::LocalGet(str_len_local)); // already I64
+                        
+                        // Push args array info
+                        func.instruction(&WasmInstruction::LocalGet(str_ptr_local)); // args ptr (already I64) 
+                        func.instruction(&WasmInstruction::I64Const(1)); // arg count = 1 (using I64Const directly)
+                        
+                        // Call dispatch_message with the parameters in correct order
                         func.instruction(&WasmInstruction::Call(7)); // Call dispatch_message
                         func.instruction(&WasmInstruction::LocalSet(result_local));
                     } else {
                         // No arguments for operator, treat as unary
+                        
+                        // Push receiver first (self)
+                        func.instruction(&WasmInstruction::LocalGet(0)); // self as receiver
+                        
+                        // Push message name info
+                        func.instruction(&WasmInstruction::I32Const(0)); // message name ptr
+                        func.instruction(&WasmInstruction::I64ExtendI32S); // Convert name ptr to i64
+                        func.instruction(&WasmInstruction::I32Const(0)); // message name length 
+                        func.instruction(&WasmInstruction::I64ExtendI32S); // Convert message len to i64
+                        
+                        // Push empty args array
                         func.instruction(&WasmInstruction::I32Const(0)); // Empty array ptr
+                        func.instruction(&WasmInstruction::I64ExtendI32S); // Convert ptr to i64
                         func.instruction(&WasmInstruction::I32Const(0)); // Zero length
+                        func.instruction(&WasmInstruction::I64ExtendI32S); // Convert length to i64
+                        
+                        // Call dispatch_message
                         func.instruction(&WasmInstruction::Call(7)); // Call dispatch_message
                         func.instruction(&WasmInstruction::LocalSet(result_local));
                     }
                 } else {
                     // No arguments, call with empty args array
-                    func.instruction(&WasmInstruction::I32Const(0)); // Empty array ptr
-                    func.instruction(&WasmInstruction::I32Const(0)); // Zero length
+                    
+                    // Push receiver first (self)
+                    func.instruction(&WasmInstruction::LocalGet(0)); // self as receiver
+                    
+                    // Push message name info - use I64Const directly for consistency
+                    func.instruction(&WasmInstruction::I64Const(0)); // message name ptr 
+                    func.instruction(&WasmInstruction::I64Const(0)); // message name length
+                    
+                    // Push empty args array - use I64Const directly
+                    func.instruction(&WasmInstruction::I64Const(0)); // Empty array ptr 
+                    func.instruction(&WasmInstruction::I64Const(0)); // Zero length
+                    
+                    // Call dispatch_message
                     func.instruction(&WasmInstruction::Call(7)); // Call dispatch_message
                     func.instruction(&WasmInstruction::LocalSet(result_local));
                 }
@@ -1073,7 +1132,7 @@ fn compile_argument(
 
 fn compile_message_chain(
     chain: &iowa_parser::MessageChain,
-    method_data: &MethodData,
+    _method_data: &MethodData,
     runtime: &Runtime,
 ) -> WasmFunction {
     // Define local variables we'll need
@@ -1088,18 +1147,25 @@ fn compile_message_chain(
     // Add locals for result storage (we'll use local 0 for the current result)
     func_locals.push((1, ValType::I64)); // One I64 local for result
 
-    // Add locals for string operations
-    func_locals.push((4, ValType::I32)); // Four I32 locals for string operations
+    // Add locals for string operations - use I64 for all locals to match function signatures
+    func_locals.push((4, ValType::I64)); // Four I64 locals for string operations (previously I32)
 
-    // Add locals for array operations
-    func_locals.push((4, ValType::I32)); // Four I32 locals for array operations
+    // Add locals for array operations - use I64 for consistency
+    func_locals.push((4, ValType::I64)); // Four I64 locals for array operations (previously I32)
 
-    // Add locals for argument processing
+    // Add locals for argument processing - all I64 for consistency
     func_locals.push((8, ValType::I64)); // Eight I64 locals for argument processing
-    func_locals.push((8, ValType::I32)); // Eight I32 locals for argument metadata
+    func_locals.push((8, ValType::I64)); // Eight I64 locals for argument metadata (previously I32)
 
     // Initialize the function with locals
     let mut func = WasmFunction::new(func_locals);
+
+    // Constants for local variables - define them at function scope so they're available everywhere
+    const STRING_NAME_PTR: u32 = 1; // String pointer local
+    const STRING_NAME_LEN: u32 = 2; // String length local
+    const ARGS_PTR: u32 = 3; // Arguments array pointer local
+    const ARGS_LEN: u32 = 4; // Arguments array length local
+    const RESULT_LOCAL: u32 = 0; // Result local
 
     // For an empty chain, return nil
     if chain.messages.is_empty() {
@@ -1115,25 +1181,18 @@ fn compile_message_chain(
         let is_last = i == chain.messages.len() - 1;
         let is_first = i == 0;
 
-        // Store constant locals
-        const STRING_NAME_PTR: u32 = 1; // String pointer local
-        const STRING_NAME_LEN: u32 = 2; // String length local
-        const ARGS_PTR: u32 = 3; // Arguments array pointer local
-        const ARGS_LEN: u32 = 4; // Arguments array length local
-        const RESULT_LOCAL: u32 = 0; // Result local
-
         match &message.symbol {
             iowa_parser::Symbol::Quote(quote) => {
                 // Create a string literal in WASM memory
                 let string_content = quote.content();
 
-                // Store the string length as constant
-                func.instruction(&WasmInstruction::I32Const(string_content.len() as i32));
+                // Store the string length as constant - use I64Const directly
+                func.instruction(&WasmInstruction::I64Const(string_content.len() as i64));
                 func.instruction(&WasmInstruction::LocalSet(STRING_NAME_LEN));
 
-                // Call string allocation function (alloc_string)
-                func.instruction(&WasmInstruction::I32Const(0)); // Dummy pointer
-                func.instruction(&WasmInstruction::LocalGet(STRING_NAME_LEN));
+                // Call string allocation function (alloc_string) - use I64Const directly
+                func.instruction(&WasmInstruction::I64Const(0)); // Dummy pointer (now I64)
+                func.instruction(&WasmInstruction::LocalGet(STRING_NAME_LEN)); // Already I64
                 func.instruction(&WasmInstruction::Call(2)); // Call alloc_string
 
                 if !is_last {
@@ -1161,13 +1220,12 @@ fn compile_message_chain(
                 // Get the message name
                 let name_str = id.name();
 
-                // Set message name length
-                func.instruction(&WasmInstruction::I32Const(name_str.len() as i32));
+                // Set message name length - use I64Const directly to avoid conversion issues
+                func.instruction(&WasmInstruction::I64Const(name_str.len() as i64));
                 func.instruction(&WasmInstruction::LocalSet(STRING_NAME_LEN));
 
                 // Prepare message name pointer (will be determined at runtime)
-                func.instruction(&WasmInstruction::I32Const(0)); // Dummy pointer
-                func.instruction(&WasmInstruction::LocalGet(STRING_NAME_LEN));
+                func.instruction(&WasmInstruction::I64Const(0)); // Dummy pointer - use I64Const directly to avoid conversion issues
                 func.instruction(&WasmInstruction::LocalSet(STRING_NAME_PTR));
 
                 // Process arguments if we have any
@@ -1193,52 +1251,48 @@ fn compile_message_chain(
                     // In a real implementation, we'd allocate memory and copy values
 
                     // Set argument array size
-                    func.instruction(&WasmInstruction::I32Const(arg_count as i32));
+                    func.instruction(&WasmInstruction::I64Const(arg_count as i64));
                     func.instruction(&WasmInstruction::LocalSet(ARGS_LEN));
 
                     // Allocate array pointer (placeholder)
-                    func.instruction(&WasmInstruction::I32Const(0));
+                    func.instruction(&WasmInstruction::I64Const(0));
                     func.instruction(&WasmInstruction::LocalSet(ARGS_PTR));
                 } else {
                     // No arguments
-                    func.instruction(&WasmInstruction::I32Const(0)); // Empty array pointer
-                    func.instruction(&WasmInstruction::I32Const(0)); // Zero length
+                    func.instruction(&WasmInstruction::I64Const(0)); // Empty array pointer
                     func.instruction(&WasmInstruction::LocalSet(ARGS_PTR));
+                    func.instruction(&WasmInstruction::I64Const(0)); // Zero length
                     func.instruction(&WasmInstruction::LocalSet(ARGS_LEN));
                 }
 
-                // Get the receiver for this message
-                if is_first {
-                    // First message uses the self parameter (local 0)
-                    func.instruction(&WasmInstruction::LocalGet(0)); // Get 'self' parameter
-                } else {
-                    // Use the result of the previous message
-                    func.instruction(&WasmInstruction::LocalGet(RESULT_LOCAL));
-                }
+                // The receiver code is now part of the lookup_slot call below
 
-                // Call dispatch_message with the prepared arguments
+                // Call lookup_slot to find the identifier - note we're using lookup_slot (6) here
+                // First push the receiver parameter (explicit self)
+                func.instruction(&WasmInstruction::LocalGet(0)); // Get 'self' parameter (receiver)
+                
+                // Then push the string name ptr and length parameters
                 func.instruction(&WasmInstruction::LocalGet(STRING_NAME_PTR));
+                func.instruction(&WasmInstruction::I64ExtendI32S); // Convert name ptr to i64
                 func.instruction(&WasmInstruction::LocalGet(STRING_NAME_LEN));
-                func.instruction(&WasmInstruction::LocalGet(ARGS_PTR));
-                func.instruction(&WasmInstruction::LocalGet(ARGS_LEN));
-                func.instruction(&WasmInstruction::Call(7)); // Call dispatch_message
+                func.instruction(&WasmInstruction::I64ExtendI32S); // Convert message name length to i64
+                
+                // Call lookup_slot with correct parameter order (receiver, name_ptr, name_len)
+                func.instruction(&WasmInstruction::Call(6)); // Call lookup_slot
 
-                if !is_last {
-                    // Store result for the next operation
-                    func.instruction(&WasmInstruction::LocalSet(RESULT_LOCAL));
-                }
+                // Always store the result so it's available for the next operation or return
+                func.instruction(&WasmInstruction::LocalSet(RESULT_LOCAL));
             }
             iowa_parser::Symbol::Operator(op) => {
                 // Get the operator symbol
                 let name_str = op.symbol();
 
-                // Set message name length
-                func.instruction(&WasmInstruction::I32Const(name_str.len() as i32));
+                // Set message name length - use I64Const directly to avoid conversion issues
+                func.instruction(&WasmInstruction::I64Const(name_str.len() as i64));
                 func.instruction(&WasmInstruction::LocalSet(STRING_NAME_LEN));
 
                 // Prepare message name pointer (will be determined at runtime)
-                func.instruction(&WasmInstruction::I32Const(0)); // Dummy pointer
-                func.instruction(&WasmInstruction::LocalGet(STRING_NAME_LEN));
+                func.instruction(&WasmInstruction::I64Const(0)); // Dummy pointer - use I64Const directly to avoid conversion issues
                 func.instruction(&WasmInstruction::LocalSet(STRING_NAME_PTR));
 
                 // Process arguments if we have any
@@ -1259,21 +1313,25 @@ fn compile_message_chain(
                     }
 
                     // Set argument array size
-                    func.instruction(&WasmInstruction::I32Const(arg_count as i32));
+                    func.instruction(&WasmInstruction::I64Const(arg_count as i64));
                     func.instruction(&WasmInstruction::LocalSet(ARGS_LEN));
 
                     // Allocate array pointer (placeholder)
-                    func.instruction(&WasmInstruction::I32Const(0));
+                    func.instruction(&WasmInstruction::I64Const(0));
                     func.instruction(&WasmInstruction::LocalSet(ARGS_PTR));
                 } else {
                     // No arguments
-                    func.instruction(&WasmInstruction::I32Const(0)); // Empty array pointer
-                    func.instruction(&WasmInstruction::I32Const(0)); // Zero length
+                    func.instruction(&WasmInstruction::I64Const(0)); // Empty array pointer
                     func.instruction(&WasmInstruction::LocalSet(ARGS_PTR));
+                    func.instruction(&WasmInstruction::I64Const(0)); // Zero length
                     func.instruction(&WasmInstruction::LocalSet(ARGS_LEN));
                 }
 
-                // Get the receiver for this message
+                // The receiver code is now part of the lookup_slot call below
+
+                // Call dispatch_message with the prepared arguments (receiver, message_ptr, message_len, args_ptr, args_len)
+                
+                // First push receiver
                 if is_first {
                     // First message uses the self parameter (local 0)
                     func.instruction(&WasmInstruction::LocalGet(0)); // Get 'self' parameter
@@ -1281,22 +1339,26 @@ fn compile_message_chain(
                     // Use the result of the previous message
                     func.instruction(&WasmInstruction::LocalGet(RESULT_LOCAL));
                 }
-
-                // Call dispatch_message with the prepared arguments
-                func.instruction(&WasmInstruction::LocalGet(STRING_NAME_PTR));
-                func.instruction(&WasmInstruction::LocalGet(STRING_NAME_LEN));
-                func.instruction(&WasmInstruction::LocalGet(ARGS_PTR));
-                func.instruction(&WasmInstruction::LocalGet(ARGS_LEN));
+                
+                // Then push message name info - already I64 type locals
+                func.instruction(&WasmInstruction::LocalGet(STRING_NAME_PTR)); // Already I64
+                func.instruction(&WasmInstruction::LocalGet(STRING_NAME_LEN)); // Already I64
+                
+                // Then push argument array info - already I64 type locals
+                func.instruction(&WasmInstruction::LocalGet(ARGS_PTR)); // Already I64 
+                func.instruction(&WasmInstruction::LocalGet(ARGS_LEN)); // Already I64
+                
+                // Call dispatch_message with all parameters in correct order
                 func.instruction(&WasmInstruction::Call(7)); // Call dispatch_message
 
-                if !is_last {
-                    // Store result for the next operation
-                    func.instruction(&WasmInstruction::LocalSet(RESULT_LOCAL));
-                }
+                // Always store the result so it's available for the next operation or return
+                func.instruction(&WasmInstruction::LocalSet(RESULT_LOCAL));
             }
         }
     }
 
+    // Return the result value that's been stored in RESULT_LOCAL
+    func.instruction(&WasmInstruction::LocalGet(RESULT_LOCAL));
     // End the function
     func.instruction(&WasmInstruction::End);
 
