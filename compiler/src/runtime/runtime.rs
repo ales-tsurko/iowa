@@ -579,10 +579,28 @@ impl Runtime {
                 match iowa_parser::parse(source) {
                     Ok((_, chains)) if !chains.is_empty() => {
                         println!("Successfully parsed, chain count: {}", chains.len());
-                        // Execute the first message chain
-                        let result = self.execute_message_chain(&chains[0]);
-                        println!("Chain execution result: {:?}", result);
-                        result
+                        
+                        // Get current frame information for arguments
+                        let (args, receiver) = match &self.current_frame {
+                            Some(frame) => {
+                                let args = frame.args().to_vec();
+                                let receiver = Value::Object(frame.receiver());
+                                (args, receiver)
+                            },
+                            None => (vec![], Value::Nil),
+                        };
+                        
+                        // Create method info for WASM compilation
+                        let method_data = MethodData {
+                            args: vec![], // No formal arguments for now
+                            body: MethodBody::Source(source.clone()),
+                        };
+                        
+                        // Create a WasmMethod and execute it
+                        let method = crate::runtime::wasm_runtime::WasmMethod::from_ast(&chains[0], &method_data, self);
+                        let result = method.execute(self, &args, receiver);
+                        println!("WASM method execution result: {:?}", result);
+                        Some(result)
                     }
                     Ok((_, _chains)) => {
                         println!("Parse succeeded but no chains found");
@@ -594,11 +612,8 @@ impl Runtime {
                     }
                 }
             },
-            MethodBody::Bytecode(bytecode_data) => {
-                println!("Executing bytecode with {} bytes", bytecode_data.len());
-                
-                // Deserialize bytecode from raw bytes
-                let bytecode = self.deserialize_bytecode(bytecode_data);
+            MethodBody::WasmModule(wasm_bytes) => {
+                println!("Executing WASM module with {} bytes", wasm_bytes.len());
                 
                 // Get current frame information for arguments
                 let (args, receiver) = match &self.current_frame {
@@ -610,28 +625,52 @@ impl Runtime {
                     None => (vec![], Value::Nil),
                 };
                 
-                // Create a bytecode VM and execute the bytecode
-                let mut vm = crate::runtime::bytecode::BytecodeVM::new(self as *mut Runtime);
-                let result = unsafe { vm.execute(&bytecode, &args, receiver) };
+                // For WASM method execution, we can directly execute the WASM module
+                let mut store = wasmer::Store::default();
+                let module = wasmer::Module::new(&store, wasm_bytes)
+                    .map_err(|e| println!("WASM module compilation error: {:?}", e))
+                    .ok()?;
                 
-                println!("Bytecode execution result: {:?}", result);
-                Some(result)
+                // Create imports for runtime functions
+                let imports = wasmer::imports! {};
+                
+                // Instantiate the module
+                let instance = wasmer::Instance::new(&mut store, &module, &imports)
+                    .map_err(|e| println!("WASM instantiation error: {:?}", e))
+                    .ok()?;
+                
+                // Get the exported "main" function
+                let main_func = instance.exports.get_function("main")
+                    .map_err(|e| println!("WASM function error: {:?}", e))
+                    .ok()?;
+                
+                // Prepare arguments (converting from Io values to WASM values)
+                let wasm_args: Vec<wasmer::Value> = args.iter()
+                    .map(|arg| {
+                        let tag_val: i64 = self.to_tagged_value(arg).try_into().unwrap_or(0);
+                        wasmer::Value::I64(tag_val)
+                    })
+                    .collect();
+                
+                // Call the function
+                let result = main_func.call(&mut store, &wasm_args)
+                    .map_err(|e| println!("WASM execution error: {:?}", e))
+                    .ok()?;
+                
+                // Convert the result back to an Io value
+                if let Some(wasmer::Value::I64(raw_value)) = result.first() {
+                    let u_val: u64 = (*raw_value).try_into().unwrap_or(0);
+                    let value = self.from_tagged_value(u_val);
+                    println!("WASM execution result: {:?}", value);
+                    Some(value)
+                } else {
+                    println!("WASM execution returned no result");
+                    Some(Value::Nil)
+                }
             }
         }
     }
     
-    /// Deserialize a bytecode object from raw bytes
-    fn deserialize_bytecode(&self, data: &[u8]) -> crate::runtime::bytecode::Bytecode {
-        // Use the bytecode's deserialize method
-        match crate::runtime::bytecode::Bytecode::deserialize(data) {
-            Some(bytecode) => bytecode,
-            None => {
-                println!("Failed to deserialize bytecode, falling back to empty bytecode");
-                // Fall back to empty bytecode if deserialization fails
-                crate::runtime::bytecode::Bytecode::new()
-            }
-        }
-    }
     
     /// Execute a message chain in the context of a method
     fn execute_message_chain(&mut self, chain: &iowa_parser::MessageChain) -> Option<Value> {
@@ -1369,26 +1408,26 @@ impl Runtime {
         // Verify that the source can be parsed
         match iowa_parser::parse(body_source) {
             Ok((_, chains)) => {
-                // Decide whether to use source or bytecode based on configuration
-                let use_bytecode = true; // Use bytecode execution by default
+                // Decide whether to use source or generate WASM based on configuration
+                let use_wasm = true; // Use WASM execution by default
                 
-                let method_data = if use_bytecode && !chains.is_empty() {
-                    // Create method data with precompiled bytecode
+                let method_data = if use_wasm && !chains.is_empty() {
+                    // Create method data with source for initial method creation
                     let method_data = MethodData {
                         args: arg_names.clone(),
-                        body: MethodBody::Source(body_source.to_string()), // Temporary source reference
+                        body: MethodBody::Source(body_source.to_string()),
                     };
                     
-                    // Generate bytecode from the parsed AST
-                    let bytecode = crate::runtime::bytecode::Bytecode::from_message_chain(&chains[0], &method_data);
+                    // Generate WASM module from the parsed AST
+                    let wasm_method = crate::runtime::wasm_runtime::WasmMethod::from_ast(&chains[0], &method_data, self);
                     
-                    // Serialize bytecode to bytes
-                    let bytecode_data = self.serialize_bytecode(&bytecode);
+                    // Get the WASM module bytes
+                    let wasm_bytes = wasm_method.module_bytes().clone();
                     
-                    // Create final method data with bytecode
+                    // Create final method data with WASM module
                     MethodData {
                         args: arg_names,
-                        body: MethodBody::Bytecode(bytecode_data),
+                        body: MethodBody::WasmModule(wasm_bytes),
                     }
                 } else {
                     // Store the source directly for interpreted execution
@@ -1405,22 +1444,16 @@ impl Runtime {
         }
     }
     
-    /// Create a user-defined method directly from bytecode
-    pub fn create_method_with_bytecode(&mut self, arg_names: Vec<String>, bytecode_data: Vec<u8>) -> Option<ObjectRef> {
-        // Create method data with bytecode
+    /// Create a user-defined method directly from WebAssembly module
+    pub fn create_method_with_wasm(&mut self, arg_names: Vec<String>, wasm_bytes: Vec<u8>) -> Option<ObjectRef> {
+        // Create method data with WASM module bytes
         let method_data = MethodData {
             args: arg_names,
-            body: MethodBody::Bytecode(bytecode_data),
+            body: MethodBody::WasmModule(wasm_bytes),
         };
         
         // Allocate the method object
         Some(self.memory.alloc_method(MethodType::UserDefined(method_data)))
-    }
-    
-    /// Serialize a bytecode object to raw bytes
-    fn serialize_bytecode(&self, bytecode: &crate::runtime::bytecode::Bytecode) -> Vec<u8> {
-        // Use the bytecode's own serialization method
-        bytecode.serialize()
     }
     
     /// Run garbage collection
@@ -2005,8 +2038,8 @@ pub struct MethodData {
 pub enum MethodBody {
     /// Method body as a source string that can be parsed
     Source(String),
-    /// Raw bytecode (for future optimized methods)
-    Bytecode(Vec<u8>),
+    /// WebAssembly module for optimized execution
+    WasmModule(Vec<u8>),
 }
 
 /// Io object representation

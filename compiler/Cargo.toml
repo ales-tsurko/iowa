@@ -14,9 +14,14 @@ cranelift-module = "0.118.0"
 cranelift-jit = "0.118.0"
 cranelift-native = "0.118.0"
 cranelift-wasm = "0.112.3"
-thiserror = "1.0"
 cranelift-control = "0.118.0"
 target-lexicon = "0.12"
+thiserror = "1.0"
+wasmer = "5.0.4"
+wasmer-compiler-cranelift = "5.0.4"
+wasmer-wasi = "3.1.1"
+wasmparser = "0.228.0"
+wasm-encoder = "0.228.0"
 
 [lints]
 workspace = true

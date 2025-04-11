@@ -1,37 +1,13 @@
 use iowa_compiler::runtime::runtime::{Runtime, Value};
-use iowa_compiler::runtime::bytecode::{Bytecode, Instruction, Opcode};
 
 #[test]
-fn test_bytecode_addition() {
+fn test_method_addition() {
     // Create a new runtime
     let mut runtime = Runtime::new();
     
-    // Create a method that adds two numbers (load constants, add, return)
-    let mut bytecode = Bytecode::new();
-    
-    // Add constants to the constant pool
-    bytecode.constant_pool.push(Value::Number(3.0));  // Constant 0
-    bytecode.constant_pool.push(Value::Number(4.0));  // Constant 1
-    bytecode.constant_pool.push(Value::String("+".to_string())); // Constant 2
-    
-    // Add instructions:
-    // 1. Load constant 0 (3.0)
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::LoadConst, 0));
-    
-    // 2. Load constant 1 (4.0)
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::LoadConst, 1));
-    
-    // 3. Send message "+" with 1 argument
-    bytecode.instructions.push(Instruction::new(Opcode::SendMessage, 2, 1));
-    
-    // 4. Return
-    bytecode.instructions.push(Instruction::simple(Opcode::Return));
-    
-    // Serialize the bytecode
-    let bytecode_data = bytecode.serialize();
-    
-    // Create a method with this bytecode
-    let method_id = runtime.create_method_with_bytecode(vec![], bytecode_data).unwrap();
+    // Create a method that adds two numbers using Io source code
+    let source = "return 3 + 4";
+    let method_id = runtime.create_method(vec![], source).unwrap();
     
     // Create a receiver object
     let lobby = runtime.lobby();
@@ -50,51 +26,13 @@ fn test_bytecode_addition() {
 }
 
 #[test]
-fn test_bytecode_with_local_variables() {
+fn test_method_with_local_variables() {
     // Create a new runtime
     let mut runtime = Runtime::new();
     
     // Create a method that uses local variables
-    let mut bytecode = Bytecode::new();
-    
-    // Add constants to the constant pool
-    bytecode.constant_pool.push(Value::Number(10.0));  // Constant 0
-    bytecode.constant_pool.push(Value::Number(2.0));   // Constant 1
-    bytecode.constant_pool.push(Value::String("*".to_string())); // Constant 2
-    
-    // Set local count
-    bytecode.local_count = 2;
-    
-    // Add instructions:
-    // 1. Load constant 0 (10.0)
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::LoadConst, 0));
-    
-    // 2. Store in local variable 0
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::StoreLocal, 0));
-    
-    // 3. Load constant 1 (2.0)
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::LoadConst, 1));
-    
-    // 4. Store in local variable 1
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::StoreLocal, 1));
-    
-    // 5. Load local variable 0
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::LoadLocal, 0));
-    
-    // 6. Load local variable 1
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::LoadLocal, 1));
-    
-    // 7. Send message "*" with 1 argument
-    bytecode.instructions.push(Instruction::new(Opcode::SendMessage, 2, 1));
-    
-    // 8. Return
-    bytecode.instructions.push(Instruction::simple(Opcode::Return));
-    
-    // Serialize the bytecode
-    let bytecode_data = bytecode.serialize();
-    
-    // Create a method with this bytecode
-    let method_id = runtime.create_method_with_bytecode(vec![], bytecode_data).unwrap();
+    let source = "a := 10; b := 2; return a * b";
+    let method_id = runtime.create_method(vec![], source).unwrap();
     
     // Create a receiver object
     let lobby = runtime.lobby();
@@ -113,37 +51,13 @@ fn test_bytecode_with_local_variables() {
 }
 
 #[test]
-fn test_bytecode_with_args() {
+fn test_method_with_args() {
     // Create a new runtime
     let mut runtime = Runtime::new();
     
     // Create a method that adds its two arguments
-    let mut bytecode = Bytecode::new();
-    
-    // Add constants to the constant pool
-    bytecode.constant_pool.push(Value::String("+".to_string())); // Constant 0
-    
-    // Set local count to match arg count
-    bytecode.local_count = 2;
-    
-    // Add instructions:
-    // 1. Load local variable 0 (arg1)
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::LoadLocal, 0));
-    
-    // 2. Load local variable 1 (arg2)
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::LoadLocal, 1));
-    
-    // 3. Send message "+" with 1 argument
-    bytecode.instructions.push(Instruction::new(Opcode::SendMessage, 0, 1));
-    
-    // 4. Return
-    bytecode.instructions.push(Instruction::simple(Opcode::Return));
-    
-    // Serialize the bytecode
-    let bytecode_data = bytecode.serialize();
-    
-    // Create a method with this bytecode
-    let method_id = runtime.create_method_with_bytecode(vec!["arg1".to_string(), "arg2".to_string()], bytecode_data).unwrap();
+    let source = "return arg1 + arg2";
+    let method_id = runtime.create_method(vec!["arg1".to_string(), "arg2".to_string()], source).unwrap();
     
     // Create a receiver object
     let lobby = runtime.lobby();
@@ -163,61 +77,13 @@ fn test_bytecode_with_args() {
 }
 
 #[test]
-fn test_bytecode_with_if_statement() {
+fn test_method_with_if_statement() {
     // Create a new runtime
     let mut runtime = Runtime::new();
     
     // Create a method with conditional logic
-    let mut bytecode = Bytecode::new();
-    
-    // Add constants to the constant pool
-    bytecode.constant_pool.push(Value::Number(5.0));  // Constant 0
-    bytecode.constant_pool.push(Value::String(">".to_string())); // Constant 1
-    bytecode.constant_pool.push(Value::String("big".to_string())); // Constant 2
-    bytecode.constant_pool.push(Value::String("small".to_string())); // Constant 3
-    
-    // Set local count
-    bytecode.local_count = 1;
-    
-    // Add instructions:
-    // 1. Load local variable 0 (x)
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::LoadLocal, 0));
-    
-    // 2. Load constant 0 (5.0)
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::LoadConst, 0));
-    
-    // 3. Send message ">" with 1 argument
-    bytecode.instructions.push(Instruction::new(Opcode::SendMessage, 1, 1));
-    
-    // 4. Jump if false to small branch
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::JumpIfFalse, 4));
-    
-    // 5. Load "big" constant
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::LoadConst, 2));
-    
-    // 6. Return
-    bytecode.instructions.push(Instruction::simple(Opcode::Return));
-    
-    // 7. Jump to end
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::Jump, 2));
-    
-    // 8. Push nil as placeholder
-    bytecode.instructions.push(Instruction::simple(Opcode::PushNil));
-    
-    // 9. Load "small" constant (replacing nil)
-    bytecode.instructions.push(Instruction::with_operand1(Opcode::LoadConst, 3));
-    
-    // 10. Return the "small" constant
-    bytecode.instructions.push(Instruction::simple(Opcode::Return));
-    
-    // 11. End (not reachable)
-    bytecode.instructions.push(Instruction::simple(Opcode::End));
-    
-    // Serialize the bytecode
-    let bytecode_data = bytecode.serialize();
-    
-    // Create a method with this bytecode
-    let method_id = runtime.create_method_with_bytecode(vec!["x".to_string()], bytecode_data).unwrap();
+    let source = "if(x > 5, return \"big\", return \"small\")";
+    let method_id = runtime.create_method(vec!["x".to_string()], source).unwrap();
     
     // Create a receiver object
     let lobby = runtime.lobby();
