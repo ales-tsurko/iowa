@@ -8,33 +8,46 @@ use cranelift_jit::{JITBuilder as CraneliftJITBuilder, JITModule};
 use cranelift_module::Module;
 use cranelift_native as native;
 use std::mem;
+use std::sync::{Arc, Mutex};
 
 /// Function signature for JIT-compiled Io functions
 pub type IoJitFunction = unsafe extern "C" fn() -> u64;
 
-/// Wrapper around a JIT-compiled function
+/// Wrapper around a JIT-compiled function with a runtime instance
 pub struct JitFunction {
     /// The JIT module that contains the function
     _module: JITModule, // Keep module alive while function exists
     /// Function pointer to the compiled code
     pub func: IoJitFunction,
+    /// The runtime instance used by this function
+    runtime: Arc<Mutex<crate::runtime::runtime::Runtime>>,
 }
 
 impl JitFunction {
     /// Create a new JIT function
-    fn new(module: JITModule, func_ptr: *const u8) -> Self {
+    fn new(
+        module: JITModule, 
+        func_ptr: *const u8, 
+        runtime: Arc<Mutex<crate::runtime::runtime::Runtime>>
+    ) -> Self {
         // Convert raw function pointer to the expected signature
         let func = unsafe { mem::transmute::<*const u8, IoJitFunction>(func_ptr) };
 
         Self {
             _module: module,
             func,
+            runtime,
         }
     }
 
     /// Execute the JIT-compiled function
     pub fn execute(&self) -> u64 {
         unsafe { (self.func)() }
+    }
+    
+    /// Get a reference to the runtime
+    pub fn runtime(&self) -> &Arc<Mutex<crate::runtime::runtime::Runtime>> {
+        &self.runtime
     }
 }
 
@@ -72,7 +85,11 @@ impl JitBuilder {
     }
 
     /// Finalize the compilation and return a callable function
-    pub fn finalize(mut self, func_id: cranelift_module::FuncId) -> JitFunction {
+    pub fn finalize(
+        mut self, 
+        func_id: cranelift_module::FuncId,
+        runtime: Arc<Mutex<crate::runtime::runtime::Runtime>>
+    ) -> JitFunction {
         // Finalize the module
         self.module.finalize_definitions().unwrap();
 
@@ -80,7 +97,7 @@ impl JitBuilder {
         let code_ptr = self.module.get_finalized_function(func_id);
 
         // Create and return the JIT function
-        JitFunction::new(self.module, code_ptr)
+        JitFunction::new(self.module, code_ptr, runtime)
     }
 }
 

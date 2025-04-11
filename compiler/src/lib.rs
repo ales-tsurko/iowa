@@ -31,23 +31,29 @@ pub enum IoValue {
 
 /// Compile the Io message chain for JIT execution
 pub fn compile_jit(chain: &MessageChain) -> backend::jit::JitFunction {
+    // Create a new runtime instance - thread-safe with Arc<Mutex<>>
+    let runtime = std::sync::Arc::new(std::sync::Mutex::new(runtime::runtime::Runtime::new()));
+    
     // Create JIT backend
     let mut jit_builder = backend::jit::JitBuilder::new();
 
     // Compile the message chain
-    let function_id = compile_to_jit_module(chain, &mut jit_builder);
+    let function_id = compile_to_jit_module(chain, &mut jit_builder, runtime.clone());
 
-    // Finalize and return the compiled function
-    jit_builder.finalize(function_id)
+    // Finalize and return the compiled function with runtime reference
+    jit_builder.finalize(function_id, runtime)
 }
 
 /// Compile the Io message chain to a WebAssembly module
 pub fn compile_wasm(chain: &MessageChain) -> Vec<u8> {
+    // Create a new runtime instance - thread-safe with Arc<Mutex<>>
+    let runtime = std::sync::Arc::new(std::sync::Mutex::new(runtime::runtime::Runtime::new()));
+    
     // Create WASM backend
     let mut wasm_builder = backend::wasm::WasmBuilder::new();
 
     // Compile the message chain
-    let function_id = compile_to_wasm_module(chain, &mut wasm_builder);
+    let function_id = compile_to_wasm_module(chain, &mut wasm_builder, runtime.clone());
 
     // Finalize and return the WASM module
     wasm_builder.finalize(function_id)
@@ -57,6 +63,7 @@ pub fn compile_wasm(chain: &MessageChain) -> Vec<u8> {
 fn compile_to_jit_module(
     chain: &MessageChain,
     jit_builder: &mut backend::jit::JitBuilder,
+    runtime: std::sync::Arc<std::sync::Mutex<runtime::runtime::Runtime>>,
 ) -> cranelift_module::FuncId {
     // Create function context and builder
     let mut ctx = jit_builder.make_context();
@@ -96,6 +103,7 @@ fn compile_to_jit_module(
 fn compile_to_wasm_module(
     chain: &MessageChain,
     wasm_builder: &mut backend::wasm::WasmBuilder,
+    runtime: std::sync::Arc<std::sync::Mutex<runtime::runtime::Runtime>>,
 ) -> cranelift_module::FuncId {
     // Create function context and builder
     let mut ctx = wasm_builder.make_context();

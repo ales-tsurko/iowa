@@ -9,3 +9,6 @@ pub mod dispatch;
 pub mod memory;
 pub mod object;
 pub mod value;
+
+// Runtime implementation that provides actual functions used during execution
+pub mod runtime;
