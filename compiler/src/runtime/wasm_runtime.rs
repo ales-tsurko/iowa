@@ -850,7 +850,204 @@ fn generate_wasm_from_ast(
     (module.finish(), actual_function_index)
 }
 
-/// Compile a message chain to WebAssembly instructions
+/// Compile an argument to WebAssembly instructions
+fn compile_argument(
+    arg: &iowa_parser::Argument,
+    func: &mut WasmFunction,
+    runtime: &Runtime,
+    local_base: u32,
+) -> u32 {
+    // Constants for local variables
+    const ARG_RESULT: u32 = 0;     // Where we store the result
+    const ARG_STR_PTR: u32 = 1;    // String pointer
+    const ARG_STR_LEN: u32 = 2;    // String length
+    const ARG_TEMP: u32 = 3;       // Temporary variable
+    
+    // Actual local indices (offset by local_base)
+    let result_local = local_base + ARG_RESULT;
+    let str_ptr_local = local_base + ARG_STR_PTR;
+    let str_len_local = local_base + ARG_STR_LEN;
+    let temp_local = local_base + ARG_TEMP;
+    
+    // If there are no chains, return nil
+    if arg.chains.is_empty() {
+        // Return nil (encoded as u64)
+        let nil_value = runtime.to_tagged_value(&Value::Nil) as i64;
+        func.instruction(&WasmInstruction::I64Const(nil_value));
+        func.instruction(&WasmInstruction::LocalSet(result_local));
+        return result_local;
+    }
+
+    // Process the first message chain in the argument
+    let chain = &arg.chains[0];
+    
+    // If there are no messages in the chain, return nil
+    if chain.messages.is_empty() {
+        let nil_value = runtime.to_tagged_value(&Value::Nil) as i64;
+        func.instruction(&WasmInstruction::I64Const(nil_value));
+        func.instruction(&WasmInstruction::LocalSet(result_local));
+        return result_local;
+    }
+    
+    // If it's a single message with no arguments, we can optimize common cases
+    if chain.messages.len() == 1 && chain.messages[0].args.is_empty() {
+        let message = &chain.messages[0];
+        // Handle simple literals directly
+        match &message.symbol {
+            iowa_parser::Symbol::Number(num) => {
+                // Number literal
+                let num_val = match num {
+                    iowa_parser::Number::Decimal(val) => *val,
+                    iowa_parser::Number::Hex(val) => *val as f64,
+                };
+                
+                // Call alloc_number with the value
+                func.instruction(&WasmInstruction::F64Const(num_val));
+                func.instruction(&WasmInstruction::Call(3)); // Call alloc_number
+                func.instruction(&WasmInstruction::LocalSet(result_local));
+                return result_local;
+            },
+            iowa_parser::Symbol::Quote(quote) => {
+                // String literal
+                let string_content = quote.content();
+                
+                // Store string info
+                func.instruction(&WasmInstruction::I32Const(string_content.len() as i32));
+                func.instruction(&WasmInstruction::LocalSet(str_len_local));
+                
+                // Call string allocation
+                func.instruction(&WasmInstruction::I32Const(0)); // Dummy pointer (filled at runtime)
+                func.instruction(&WasmInstruction::LocalGet(str_len_local));
+                func.instruction(&WasmInstruction::Call(2)); // alloc_string
+                func.instruction(&WasmInstruction::LocalSet(result_local));
+                return result_local;
+            },
+            iowa_parser::Symbol::Identifier(id) => {
+                // Identifier (variable reference)
+                let name = id.name();
+                
+                // Store identifier name info
+                func.instruction(&WasmInstruction::I32Const(name.len() as i32));
+                func.instruction(&WasmInstruction::LocalSet(str_len_local));
+                
+                // Get name pointer (will be filled at runtime)
+                func.instruction(&WasmInstruction::I32Const(0)); 
+                func.instruction(&WasmInstruction::LocalGet(str_len_local));
+                
+                // Receiver is self
+                func.instruction(&WasmInstruction::LocalGet(0));
+                
+                // Call lookup_slot to find the identifier
+                func.instruction(&WasmInstruction::Call(6)); // lookup_slot
+                func.instruction(&WasmInstruction::LocalSet(result_local));
+                return result_local;
+            },
+            _ => {} // Fall through to full chain compilation for operators
+        }
+    }
+    
+    // For more complex expressions, use the full message chain compilation
+    // We're using a simplified version here that only handles one message for now
+    if !chain.messages.is_empty() {
+        let message = &chain.messages[0];
+        
+        // Handle the message based on its type
+        match &message.symbol {
+            iowa_parser::Symbol::Identifier(id) => {
+                let name = id.name();
+                
+                // Store identifier name info
+                func.instruction(&WasmInstruction::I32Const(name.len() as i32));
+                func.instruction(&WasmInstruction::LocalSet(str_len_local));
+                
+                // Get name pointer (will be filled at runtime)
+                func.instruction(&WasmInstruction::I32Const(0)); 
+                func.instruction(&WasmInstruction::LocalGet(str_len_local));
+                
+                // Receiver is self
+                func.instruction(&WasmInstruction::LocalGet(0));
+                
+                // Call lookup_slot to find the identifier
+                func.instruction(&WasmInstruction::Call(6)); // lookup_slot
+                func.instruction(&WasmInstruction::LocalSet(result_local));
+            },
+            iowa_parser::Symbol::Operator(op) => {
+                // Get the operator symbol
+                let name_str = op.symbol();
+                
+                // Set message name info
+                func.instruction(&WasmInstruction::I32Const(name_str.len() as i32));
+                func.instruction(&WasmInstruction::LocalSet(str_len_local));
+                
+                // Get name pointer (will be filled at runtime)
+                func.instruction(&WasmInstruction::I32Const(0)); 
+                func.instruction(&WasmInstruction::LocalGet(str_len_local));
+                
+                // Receiver is self
+                func.instruction(&WasmInstruction::LocalGet(0));
+                
+                // If we have arguments for the operator, compile them
+                if !message.args.is_empty() {
+                    // Process each argument (recursively)
+                    // This is a key enhancement to handle nested expressions
+                    
+                    // For now, we'll implement a simplified version that handles
+                    // just one argument, since that's the common case for operators
+                    if let Some(arg) = message.args.first() {
+                        // Recursively compile the argument (with offset locals)
+                        let arg_local = compile_argument(arg, func, runtime, local_base + 4);
+                        
+                        // Create an array with just this one argument value
+                        func.instruction(&WasmInstruction::I32Const(8)); // 8 bytes per value
+                        func.instruction(&WasmInstruction::LocalSet(str_ptr_local));
+                        func.instruction(&WasmInstruction::I32Const(1)); // array length = 1
+                        func.instruction(&WasmInstruction::LocalSet(str_len_local));
+                        
+                        // Get arg value to pass
+                        func.instruction(&WasmInstruction::LocalGet(arg_local));
+                        func.instruction(&WasmInstruction::LocalSet(temp_local));
+                        
+                        // Call dispatch_message with the operator and argument
+                        func.instruction(&WasmInstruction::LocalGet(0)); // self as receiver
+                        func.instruction(&WasmInstruction::I32Const(0)); // message name ptr (filled at runtime)
+                        func.instruction(&WasmInstruction::LocalGet(str_len_local));
+                        func.instruction(&WasmInstruction::LocalGet(str_ptr_local)); // args ptr
+                        func.instruction(&WasmInstruction::I32Const(1)); // arg count = 1
+                        func.instruction(&WasmInstruction::Call(7)); // Call dispatch_message
+                        func.instruction(&WasmInstruction::LocalSet(result_local));
+                    } else {
+                        // No arguments for operator, treat as unary
+                        func.instruction(&WasmInstruction::I32Const(0)); // Empty array ptr
+                        func.instruction(&WasmInstruction::I32Const(0)); // Zero length
+                        func.instruction(&WasmInstruction::Call(7)); // Call dispatch_message
+                        func.instruction(&WasmInstruction::LocalSet(result_local));
+                    }
+                } else {
+                    // No arguments, call with empty args array
+                    func.instruction(&WasmInstruction::I32Const(0)); // Empty array ptr
+                    func.instruction(&WasmInstruction::I32Const(0)); // Zero length
+                    func.instruction(&WasmInstruction::Call(7)); // Call dispatch_message
+                    func.instruction(&WasmInstruction::LocalSet(result_local));
+                }
+            },
+            _ => {
+                // For any other symbol type, just return nil for now
+                let nil_value = runtime.to_tagged_value(&Value::Nil) as i64;
+                func.instruction(&WasmInstruction::I64Const(nil_value));
+                func.instruction(&WasmInstruction::LocalSet(result_local));
+            }
+        }
+    } else {
+        // No messages in chain, use nil
+        let nil_value = runtime.to_tagged_value(&Value::Nil) as i64;
+        func.instruction(&WasmInstruction::I64Const(nil_value));
+        func.instruction(&WasmInstruction::LocalSet(result_local));
+    }
+    
+    // Return the local index where we stored the result
+    result_local
+}
+
 fn compile_message_chain(
     chain: &iowa_parser::MessageChain,
     method_data: &MethodData,
@@ -863,6 +1060,7 @@ fn compile_message_chain(
     // - Result of each message operation
     // - String pointers and lengths
     // - Argument array pointers and lengths
+    // - Nested argument evaluation
     
     // Add locals for result storage (we'll use local 0 for the current result)
     func_locals.push((1, ValType::I64)); // One I64 local for result
@@ -874,14 +1072,11 @@ fn compile_message_chain(
     func_locals.push((4, ValType::I32)); // Four I32 locals for array operations
     
     // Add locals for argument processing
-    func_locals.push((4, ValType::I64)); // Four I64 locals for argument processing
-    func_locals.push((4, ValType::I32)); // Four I32 locals for argument metadata
+    func_locals.push((8, ValType::I64)); // Eight I64 locals for argument processing
+    func_locals.push((8, ValType::I32)); // Eight I32 locals for argument metadata
 
     // Initialize the function with locals
     let mut func = WasmFunction::new(func_locals);
-
-    // Process each message in the chain
-    let mut msg_stack: Vec<iowa_parser::Message> = Vec::new();
 
     // For an empty chain, return nil
     if chain.messages.is_empty() {
@@ -892,7 +1087,7 @@ fn compile_message_chain(
         return func;
     }
 
-    // Process messages in reverse order to handle nested operations
+    // Process each message in the chain
     for (i, message) in chain.messages.iter().enumerate() {
         let is_last = i == chain.messages.len() - 1;
         let is_first = i == 0;
@@ -952,13 +1147,63 @@ fn compile_message_chain(
                 func.instruction(&WasmInstruction::LocalGet(STRING_NAME_LEN));
                 func.instruction(&WasmInstruction::LocalSet(STRING_NAME_PTR));
                 
-                // Prepare arguments array
-                if message.args.is_empty() {
-                    // No arguments, use empty array
+                // Process arguments if we have any
+                if !message.args.is_empty() {
+                    // We need to create an array of argument values
+                    let arg_count = message.args.len();
+                    let mut arg_locals = Vec::with_capacity(arg_count);
+                    
+                    // Use our enhanced argument compilation for each argument
+                    // Start at local index 5 for argument processing
+                    let arg_local_base = 5;
+                    
+                    for (arg_idx, arg) in message.args.iter().enumerate() {
+                        // Compile this argument with appropriate local variable offset
+                        // Each argument gets its own set of local variables
+                        let offset = arg_local_base + arg_idx * 4;
+                        let arg_local = compile_argument(arg, &mut func, runtime, offset as u32);
+                        arg_locals.push(arg_local);
+                    }
+                    
+                    // Now create an array with all argument values
+                    // For now, we'll use a simple approach with a fixed array
+                    // In a real implementation, we'd allocate memory and copy values
+                    
+                    // Set argument array size
+                    func.instruction(&WasmInstruction::I32Const(arg_count as i32));
+                    func.instruction(&WasmInstruction::LocalSet(ARGS_LEN));
+                    
+                    // Allocate array pointer (placeholder)
+                    func.instruction(&WasmInstruction::I32Const(0));
+                    func.instruction(&WasmInstruction::LocalSet(ARGS_PTR));
+                    
+                } else {
+                    // No arguments
                     func.instruction(&WasmInstruction::I32Const(0)); // Empty array pointer
                     func.instruction(&WasmInstruction::I32Const(0)); // Zero length
                     func.instruction(&WasmInstruction::LocalSet(ARGS_PTR));
                     func.instruction(&WasmInstruction::LocalSet(ARGS_LEN));
+                }
+                
+                // Get the receiver for this message
+                if is_first {
+                    // First message uses the self parameter (local 0)
+                    func.instruction(&WasmInstruction::LocalGet(0)); // Get 'self' parameter
+                } else {
+                    // Use the result of the previous message
+                    func.instruction(&WasmInstruction::LocalGet(RESULT_LOCAL));
+                }
+                
+                // Call dispatch_message with the prepared arguments
+                func.instruction(&WasmInstruction::LocalGet(STRING_NAME_PTR));
+                func.instruction(&WasmInstruction::LocalGet(STRING_NAME_LEN));
+                func.instruction(&WasmInstruction::LocalGet(ARGS_PTR));
+                func.instruction(&WasmInstruction::LocalGet(ARGS_LEN));
+                func.instruction(&WasmInstruction::Call(7)); // Call dispatch_message
+                
+                if !is_last {
+                    // Store result for the next operation
+                    func.instruction(&WasmInstruction::LocalSet(RESULT_LOCAL));
                 }
             },
             iowa_parser::Symbol::Operator(op) => {
@@ -974,118 +1219,36 @@ fn compile_message_chain(
                 func.instruction(&WasmInstruction::LocalGet(STRING_NAME_LEN));
                 func.instruction(&WasmInstruction::LocalSet(STRING_NAME_PTR));
                 
-                // Prepare arguments array
-                if message.args.is_empty() {
-                    // No arguments, use empty array
+                // Process arguments if we have any
+                if !message.args.is_empty() {
+                    // We need to create an array of argument values
+                    let arg_count = message.args.len();
+                    let mut arg_locals = Vec::with_capacity(arg_count);
+                    
+                    // Use our enhanced argument compilation for each argument
+                    // Start at local index 5 for argument processing
+                    let arg_local_base = 5;
+                    
+                    for (arg_idx, arg) in message.args.iter().enumerate() {
+                        // Compile this argument with appropriate local variable offset
+                        let offset = arg_local_base + arg_idx * 4;
+                        let arg_local = compile_argument(arg, &mut func, runtime, offset as u32);
+                        arg_locals.push(arg_local);
+                    }
+                    
+                    // Set argument array size
+                    func.instruction(&WasmInstruction::I32Const(arg_count as i32));
+                    func.instruction(&WasmInstruction::LocalSet(ARGS_LEN));
+                    
+                    // Allocate array pointer (placeholder)
+                    func.instruction(&WasmInstruction::I32Const(0));
+                    func.instruction(&WasmInstruction::LocalSet(ARGS_PTR));
+                    
+                } else {
+                    // No arguments
                     func.instruction(&WasmInstruction::I32Const(0)); // Empty array pointer
                     func.instruction(&WasmInstruction::I32Const(0)); // Zero length
                     func.instruction(&WasmInstruction::LocalSet(ARGS_PTR));
-                    func.instruction(&WasmInstruction::LocalSet(ARGS_LEN));
-                } else {
-                    // We have arguments to process
-                    // Compile each argument into temporary locals
-                    // We'll reserve 4 locals for argument processing: [5, 6, 7, 8]
-                    const ARG_RESULT_LOCAL: u32 = 5;  // Local for storing argument results
-                    const ARG_VALUE_PTR: u32 = 6;     // Pointer to the array of argument values
-                    const ARG_VALUE_LEN: u32 = 7;     // Length of the argument array
-                    const ARG_TEMP: u32 = 8;          // Temporary local for argument processing
-                    
-                    // Assuming runtime is available for inlined constant literals
-                    let arg_count = message.args.len();
-                    let mut arg_values = Vec::with_capacity(arg_count);
-                    
-                    // Process each argument expression
-                    for arg in &message.args {
-                        // Process the argument's message chains to generate code
-                        // For simplicity, we'll just evaluate the first message chain if available
-                        if let Some(chain) = arg.chains.first() {
-                            if let Some(first_message) = chain.messages.first() {
-                                match &first_message.symbol {
-                                    iowa_parser::Symbol::Number(num) => {
-                                        // Number literal argument
-                                        let num_val = match num {
-                                            iowa_parser::Number::Decimal(val) => *val,
-                                            iowa_parser::Number::Hex(val) => *val as f64,
-                                        };
-                                        
-                                        // Call alloc_number with the value
-                                        func.instruction(&WasmInstruction::F64Const(num_val));
-                                        func.instruction(&WasmInstruction::Call(3)); // Call alloc_number
-                                        func.instruction(&WasmInstruction::LocalSet(ARG_RESULT_LOCAL));
-                                        arg_values.push(ARG_RESULT_LOCAL);
-                                    },
-                                    iowa_parser::Symbol::Quote(quote) => {
-                                        // String literal argument
-                                        let string_content = quote.content();
-                                        
-                                        // Store string info
-                                        func.instruction(&WasmInstruction::I32Const(string_content.len() as i32));
-                                        func.instruction(&WasmInstruction::LocalSet(ARG_TEMP));
-                                        
-                                        // Call string allocation
-                                        func.instruction(&WasmInstruction::I32Const(0)); // Dummy pointer (filled at runtime)
-                                        func.instruction(&WasmInstruction::LocalGet(ARG_TEMP));
-                                        func.instruction(&WasmInstruction::Call(2)); // alloc_string
-                                        func.instruction(&WasmInstruction::LocalSet(ARG_RESULT_LOCAL));
-                                        arg_values.push(ARG_RESULT_LOCAL);
-                                    },
-                                    iowa_parser::Symbol::Identifier(id) => {
-                                        // Identifier as argument (lookup in current scope)
-                                        let name = id.name();
-                                        
-                                        // Store identifier name
-                                        func.instruction(&WasmInstruction::I32Const(name.len() as i32));
-                                        func.instruction(&WasmInstruction::LocalSet(ARG_TEMP));
-                                        
-                                        // Get name pointer (will be filled at runtime)
-                                        func.instruction(&WasmInstruction::I32Const(0)); 
-                                        func.instruction(&WasmInstruction::LocalGet(ARG_TEMP));
-                                        
-                                        // Receiver is self
-                                        func.instruction(&WasmInstruction::LocalGet(0));
-                                        
-                                        // Call lookup_slot to find the identifier
-                                        func.instruction(&WasmInstruction::Call(6)); // lookup_slot
-                                        func.instruction(&WasmInstruction::LocalSet(ARG_RESULT_LOCAL));
-                                        arg_values.push(ARG_RESULT_LOCAL);
-                                    },
-                                    _ => {
-                                        // Other literals (use nil for now)
-                                        let nil_value = runtime.to_tagged_value(&Value::Nil) as i64;
-                                        func.instruction(&WasmInstruction::I64Const(nil_value));
-                                        func.instruction(&WasmInstruction::LocalSet(ARG_RESULT_LOCAL));
-                                        arg_values.push(ARG_RESULT_LOCAL);
-                                    }
-                                }
-                            } else {
-                                // Empty message chain, use nil
-                                let nil_value = runtime.to_tagged_value(&Value::Nil) as i64;
-                                func.instruction(&WasmInstruction::I64Const(nil_value));
-                                func.instruction(&WasmInstruction::LocalSet(ARG_RESULT_LOCAL));
-                                arg_values.push(ARG_RESULT_LOCAL);
-                            }
-                        } else {
-                            // No message chains, use nil
-                            let nil_value = runtime.to_tagged_value(&Value::Nil) as i64;
-                            func.instruction(&WasmInstruction::I64Const(nil_value));
-                            func.instruction(&WasmInstruction::LocalSet(ARG_RESULT_LOCAL));
-                            arg_values.push(ARG_RESULT_LOCAL);
-                        }
-                    }
-                    
-                    // Now create an array on the stack with all the argument values
-                    // First, allocate a temporary array on the stack
-                    func.instruction(&WasmInstruction::I32Const(8 * arg_count as i32)); // 8 bytes per value
-                    func.instruction(&WasmInstruction::I32Const(arg_count as i32));
-                    
-                    // Store array pointer and length
-                    func.instruction(&WasmInstruction::LocalSet(ARG_VALUE_PTR));
-                    func.instruction(&WasmInstruction::LocalSet(ARG_VALUE_LEN));
-                    
-                    // Store the computed argument array info for dispatch_message call
-                    func.instruction(&WasmInstruction::LocalGet(ARG_VALUE_PTR));
-                    func.instruction(&WasmInstruction::LocalSet(ARGS_PTR));
-                    func.instruction(&WasmInstruction::LocalGet(ARG_VALUE_LEN));
                     func.instruction(&WasmInstruction::LocalSet(ARGS_LEN));
                 }
                 

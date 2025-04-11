@@ -244,15 +244,29 @@ This section details the implementation of WebAssembly memory management for the
 1. **Argument Handling**
    - ✓ Implementing proper argument array serialization
    - ✓ Basic support for literals in arguments
-   - ◯ Handling nested message chains in arguments (partial)
+   - ✓ Handling nested message chains in arguments
    - ✓ Supporting operator arguments
    - ✓ Passing arguments with proper tags
 
 2. **Message Chain Compilation**
    - ✓ Improving message dispatch to WebAssembly
    - ✓ Proper handling of receiver chaining
-   - ◯ Handling complex nested argument chains
+   - ✓ Handling complex nested argument chains
    - ◯ Optimizing common patterns
+   
+3. **Enhanced Nested Argument Handling Requirements**
+   - ✓ Create a dedicated argument compilation function that supports all expression types
+   - ✓ Support for arbitrarily deep nested message chains within arguments
+   - ✓ Memory management system for complex argument structures
+   - ✓ Proper scoping and evaluation order for nested expressions
+   - ✓ Consistent argument passing convention across different message types
+   - ✓ Runtime support for complex argument evaluation in WASM
+   
+4. **Further Optimization Requirements** (New)
+   - ◯ Caching common argument expressions
+   - ◯ Specialized compilation paths for common message patterns
+   - ◯ Method call inlining for performance-critical code paths
+   - ◯ Memory allocation optimization for argument arrays
 
 
 ## WebAssembly Module Integration

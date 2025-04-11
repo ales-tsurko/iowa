@@ -10,7 +10,7 @@ use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_frontend::FunctionBuilder;
 use cranelift_frontend::FunctionBuilderContext;
 use cranelift_module::{Linkage, Module};
-use iowa_parser::{Message, MessageChain, Number, Symbol};
+use iowa_parser::{Argument, Message, MessageChain, Number, Symbol};
 
 /// Runtime value type for Io objects
 #[derive(Debug, Clone)]
@@ -226,11 +226,11 @@ fn compile_message(message: &Message, builder: &mut FunctionBuilder) -> Value {
             // Create a string for the operator name
             let op_name = runtime::dispatch::encode_string_constant(builder, op.symbol());
 
-            // Compile arguments
+            // Compile arguments using the dedicated argument compilation function
             let mut arg_values = Vec::new();
             for arg in &message.args {
                 if !arg.chains.is_empty() {
-                    let arg_value = compile_message_chain(&arg.chains[0], builder);
+                    let arg_value = compile_argument(arg, builder);
                     arg_values.push(arg_value);
                 }
             }
@@ -247,11 +247,11 @@ fn compile_message_with_receiver(
     receiver: Value,
     builder: &mut FunctionBuilder,
 ) -> Value {
-    // Compile all arguments
+    // Compile all arguments using the dedicated argument compilation function
     let mut arg_values = Vec::new();
     for arg in &message.args {
         if !arg.chains.is_empty() {
-            let arg_value = compile_message_chain(&arg.chains[0], builder);
+            let arg_value = compile_argument(arg, builder);
             arg_values.push(arg_value);
         }
     }
@@ -273,6 +273,66 @@ fn compile_message_with_receiver(
 
     // Dispatch the message - this will look up methods in the prototype chain
     runtime::dispatch::call_message_dispatch(builder, receiver, message_name, &arg_values)
+}
+
+/// Compile an argument to Cranelift IR
+///
+/// This function handles arbitrarily deep nested expressions in arguments.
+/// It properly processes all types of expressions including:
+/// - Literal values (numbers, strings)
+/// - Identifiers 
+/// - Message chains with any level of nesting
+/// - Operators and their arguments
+fn compile_argument(arg: &Argument, builder: &mut FunctionBuilder) -> Value {
+    // If there are no chains, return nil
+    if arg.chains.is_empty() {
+        return runtime::value::encode_nil(builder);
+    }
+
+    // Process each message chain in the argument
+    // For now, we just evaluate the first chain, but in the future
+    // we might need to handle multiple chains differently
+    let chain = &arg.chains[0];
+    
+    // If there are no messages in the chain, return nil
+    if chain.messages.is_empty() {
+        return runtime::value::encode_nil(builder);
+    }
+    
+    // If it's a single message with no arguments, we can optimize common cases
+    if chain.messages.len() == 1 && chain.messages[0].args.is_empty() {
+        let message = &chain.messages[0];
+        // Handle simple literals directly
+        match &message.symbol {
+            Symbol::Number(n) => match n {
+                Number::Decimal(value) => {
+                    let f64_val = builder.ins().f64const(*value);
+                    return runtime::memory::allocation::alloc_number(builder, f64_val);
+                }
+                Number::Hex(value) => {
+                    let f64_val = builder.ins().f64const(*value as f64);
+                    return runtime::memory::allocation::alloc_number(builder, f64_val);
+                }
+            },
+            Symbol::Quote(quote) => {
+                let content = quote.content();
+                let length = builder.ins().iconst(types::I32, content.len() as i64);
+                let string_ptr = runtime::memory::allocation::alloc_string(builder, length);
+                return runtime::value::encode_reference(builder, string_ptr, runtime::value::TAG_STRING_REF);
+            },
+            Symbol::Identifier(id) => {
+                // Simple variable reference
+                let lobby = get_lobby(builder);
+                let name_str = id.name();
+                let name_value = runtime::dispatch::encode_string_constant(builder, name_str);
+                return runtime::object::lookup_slot(builder, lobby, name_value);
+            },
+            _ => {} // Fall through to full chain compilation for operators
+        }
+    }
+    
+    // For more complex expressions, use the full message chain compilation
+    compile_message_chain(chain, builder)
 }
 
 /// Get the Lobby object (global context)
