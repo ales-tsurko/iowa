@@ -1,9 +1,9 @@
 //! Io value representation for the runtime.
-//! 
+//!
 //! This module provides the tagged value representation used by the Io runtime.
 //! Values are encoded using a tag-based scheme to support dynamic typing.
 
-use cranelift_codegen::ir::{types, Value as CraneliftValue, InstBuilder};
+use cranelift_codegen::ir::{InstBuilder, Value as CraneliftValue, types};
 use cranelift_frontend::FunctionBuilder;
 
 /// Tag bits for runtime type identification
@@ -37,13 +37,17 @@ pub fn encode_boolean(builder: &mut FunctionBuilder, value: bool) -> CraneliftVa
 pub fn encode_number(builder: &mut FunctionBuilder, value: CraneliftValue) -> CraneliftValue {
     // For now, we'll use a simplified approach - numbers are boxed via a runtime call
     let ptr = call_runtime_alloc_number(builder, value);
-    
+
     // Convert pointer to an encoded reference
     encode_reference(builder, ptr, TAG_OBJECT_REF)
 }
 
 /// Encode an object reference in Cranelift IR
-pub fn encode_reference(builder: &mut FunctionBuilder, ptr: CraneliftValue, tag: i64) -> CraneliftValue {
+pub fn encode_reference(
+    builder: &mut FunctionBuilder,
+    ptr: CraneliftValue,
+    tag: i64,
+) -> CraneliftValue {
     // Reference is the pointer shifted left by TAG_BITS, then OR'd with the tag
     let shifted = builder.ins().ishl_imm(ptr, TAG_BITS);
     let tag_val = builder.ins().iconst(types::I64, tag);
@@ -60,7 +64,11 @@ pub fn decode_tag(builder: &mut FunctionBuilder, value: CraneliftValue) -> Crane
 pub fn has_tag(builder: &mut FunctionBuilder, value: CraneliftValue, tag: i64) -> CraneliftValue {
     let tag_value = decode_tag(builder, value);
     let tag_const = builder.ins().iconst(types::I64, tag);
-    builder.ins().icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, tag_value, tag_const)
+    builder.ins().icmp(
+        cranelift_codegen::ir::condcodes::IntCC::Equal,
+        tag_value,
+        tag_const,
+    )
 }
 
 /// Decode a reference value to extract the pointer
@@ -69,7 +77,10 @@ pub fn decode_reference(builder: &mut FunctionBuilder, value: CraneliftValue) ->
 }
 
 /// Allocate a number object in the runtime heap
-fn call_runtime_alloc_number(builder: &mut FunctionBuilder, _value: CraneliftValue) -> CraneliftValue {
+fn call_runtime_alloc_number(
+    builder: &mut FunctionBuilder,
+    _value: CraneliftValue,
+) -> CraneliftValue {
     // In a full implementation, this would call into the runtime memory management
     // For now, we'll just return a placeholder pointer that encodes the number directly
     // This isn't a proper implementation, but it lets us quickly get something working
@@ -79,7 +90,7 @@ fn call_runtime_alloc_number(builder: &mut FunctionBuilder, _value: CraneliftVal
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     // Simple unit tests that check our constants make sense
     #[test]
     fn test_tag_constants() {
@@ -89,7 +100,7 @@ mod tests {
         assert_ne!(TAG_NIL, TAG_OBJECT_REF);
         assert_ne!(TAG_NIL, TAG_STRING_REF);
         assert_ne!(TAG_NIL, TAG_MESSAGE_REF);
-        
+
         // Make sure tags fit within TAG_BITS
         assert!(TAG_NIL < (1 << TAG_BITS));
         assert!(TAG_BOOLEAN < (1 << TAG_BITS));
@@ -97,7 +108,7 @@ mod tests {
         assert!(TAG_OBJECT_REF < (1 << TAG_BITS));
         assert!(TAG_STRING_REF < (1 << TAG_BITS));
         assert!(TAG_MESSAGE_REF < (1 << TAG_BITS));
-        
+
         // Make sure TAG_MASK is correct
         assert_eq!(TAG_MASK, (1 << TAG_BITS) - 1);
     }

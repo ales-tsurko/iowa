@@ -5,7 +5,7 @@
 //! value encoding/decoding.
 
 // Export submodules
-pub mod value;
-pub mod object;
 pub mod dispatch;
 pub mod memory;
+pub mod object;
+pub mod value;

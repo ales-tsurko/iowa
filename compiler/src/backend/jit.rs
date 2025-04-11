@@ -2,8 +2,8 @@
 //!
 //! This module provides JIT compilation capabilities for Io language.
 
-use cranelift_codegen::settings::{self, Configurable};
 use cranelift_codegen::Context as CodegenContext;
+use cranelift_codegen::settings::{self, Configurable};
 use cranelift_jit::{JITBuilder as CraneliftJITBuilder, JITModule};
 use cranelift_module::Module;
 use cranelift_native as native;
@@ -25,13 +25,13 @@ impl JitFunction {
     fn new(module: JITModule, func_ptr: *const u8) -> Self {
         // Convert raw function pointer to the expected signature
         let func = unsafe { mem::transmute::<*const u8, IoJitFunction>(func_ptr) };
-        
+
         Self {
             _module: module,
             func,
         }
     }
-    
+
     /// Execute the JIT-compiled function
     pub fn execute(&self) -> u64 {
         unsafe { (self.func)() }
@@ -57,31 +57,28 @@ impl JitBuilder {
         let isa = isa_builder
             .finish(settings::Flags::new(flag_builder))
             .unwrap();
-        
+
         // Create JIT module
         let builder = CraneliftJITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
         let module = JITModule::new(builder);
         let ctx = module.make_context();
-        
-        Self {
-            module,
-            ctx,
-        }
+
+        Self { module, ctx }
     }
-    
+
     /// Get a context for code generation
     pub fn make_context(&mut self) -> CodegenContext {
         self.module.make_context()
     }
-    
+
     /// Finalize the compilation and return a callable function
     pub fn finalize(mut self, func_id: cranelift_module::FuncId) -> JitFunction {
         // Finalize the module
         self.module.finalize_definitions().unwrap();
-        
+
         // Get the function pointer
         let code_ptr = self.module.get_finalized_function(func_id);
-        
+
         // Create and return the JIT function
         JitFunction::new(self.module, code_ptr)
     }
