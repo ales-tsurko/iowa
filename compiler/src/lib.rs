@@ -4,7 +4,7 @@
 //! and to WebAssembly modules for portable distribution.
 
 mod backend;
-mod runtime;
+pub mod runtime;
 
 use cranelift_codegen::ir::{InstBuilder, Value, types};
 use cranelift_frontend::FunctionBuilder;

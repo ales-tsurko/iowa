@@ -12,3 +12,6 @@ pub mod value;
 
 // Runtime implementation that provides actual functions used during execution
 pub mod runtime;
+
+// Bytecode VM implementation for method execution
+pub mod bytecode;

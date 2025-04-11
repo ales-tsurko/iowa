@@ -217,6 +217,11 @@ pub fn encode_string_constant(builder: &mut FunctionBuilder, text: &str) -> Cran
         "-" => 0x3005,
         "*" => 0x3006,
         "/" => 0x3007,
+        ":=" => 0x3008,
+        "<" => 0x3009,
+        "if" => 0x300A,
+        "return" => 0x300B,
+        "method" => 0x300C,
         _ => 0x3000, // Default for any other string
     };
 

@@ -277,6 +277,7 @@ impl Runtime {
     
     /// Dispatch a message to an object
     pub fn dispatch_message(&mut self, receiver: Value, message_name: &str, args: Vec<Value>) -> Value {
+        println!("Dispatching message: {} to {:?}", message_name, receiver);
         // Get receiver object
         let receiver_id = match receiver {
             Value::Object(id) => id,
@@ -287,9 +288,18 @@ impl Runtime {
         };
         
         // Look up the slot in the receiver's prototype chain
+        println!("Looking up slot '{}' in receiver {}", message_name, receiver_id);
         let method = match self.memory.get_object(receiver_id) {
-            Some(obj) => obj.lookup_slot(message_name, self),
-            None => Value::Nil,
+            Some(obj) => {
+                println!("Found receiver object with type: {}", obj.type_name());
+                let slot_value = obj.lookup_slot(message_name, self);
+                println!("Slot lookup result: {:?}", slot_value);
+                slot_value
+            },
+            None => {
+                println!("Receiver object not found");
+                Value::Nil
+            },
         };
         
         // If no method found, try forward
@@ -355,6 +365,48 @@ impl Runtime {
                         }
                     }
                     "asString" => Value::String(n.to_string()),
+                    "<" => {
+                        if let Some(Value::Number(other)) = args.first() {
+                            Value::Boolean(n < *other)
+                        } else {
+                            Value::Nil
+                        }
+                    },
+                    ">" => {
+                        if let Some(Value::Number(other)) = args.first() {
+                            Value::Boolean(n > *other)
+                        } else {
+                            Value::Nil
+                        }
+                    },
+                    ">=" => {
+                        if let Some(Value::Number(other)) = args.first() {
+                            Value::Boolean(n >= *other)
+                        } else {
+                            Value::Nil
+                        }
+                    },
+                    "<=" => {
+                        if let Some(Value::Number(other)) = args.first() {
+                            Value::Boolean(n <= *other)
+                        } else {
+                            Value::Nil
+                        }
+                    },
+                    "==" => {
+                        if let Some(Value::Number(other)) = args.first() {
+                            Value::Boolean(n == *other)
+                        } else {
+                            Value::Nil
+                        }
+                    },
+                    "!=" => {
+                        if let Some(Value::Number(other)) = args.first() {
+                            Value::Boolean(n != *other)
+                        } else {
+                            Value::Nil
+                        }
+                    },
                     _ => Value::Nil,
                 }
             }
@@ -417,6 +469,7 @@ impl Runtime {
     
     /// Call a method
     fn call_method(&mut self, method: Value, receiver: Value, message_name: &str, args: Vec<Value>) -> Value {
+        println!("Calling method: method={:?}, receiver={:?}, message={}", method, receiver, message_name);
         // Get method object ID
         let method_id = match method {
             Value::Object(id) => id,
@@ -453,14 +506,25 @@ impl Runtime {
         
         // Need to break up the borrow patterns to avoid conflicts
         // First check if the method is valid and get its type
+        println!("Looking up method ID: {}", method_id);
         let method_type = match self.memory.get_object(method_id) {
             Some(obj) => {
+                println!("Found method object with data type: {:?}", obj.data);
                 match &obj.data {
-                    ObjectData::Method(method_type) => Some(method_type.clone()),
-                    _ => None, // Not a method
+                    ObjectData::Method(method_type) => {
+                        println!("Method type: {:?}", method_type);
+                        Some(method_type.clone())
+                    },
+                    _ => {
+                        println!("Not a method object");
+                        None // Not a method
+                    }
                 }
             }
-            None => None,
+            None => {
+                println!("Method object not found");
+                None
+            },
         };
         
         // Then process based on the method type
@@ -482,9 +546,17 @@ impl Runtime {
                     }
                 }
                 
-                // Would execute method body here
-                // For now, just return receiver
-                let result = receiver.clone();
+                // Execute the method body
+                // Get the current frame
+                let _current_frame = self.current_frame.as_ref().expect("Frame must exist");
+                println!("Executing method body: {:?}", &method_data.body);
+                let result = self.execute_method_body(&method_data.body);
+                
+                // If there's no explicit return value, return the receiver
+                let result = match result {
+                    Some(val) => val,
+                    None => receiver.clone(),
+                };
                 
                 // Pop call frame
                 self.pop_call_frame();
@@ -496,6 +568,314 @@ impl Runtime {
                 Value::Nil
             }
         }
+    }
+    
+    /// Execute a method body
+    fn execute_method_body(&mut self, body: &MethodBody) -> Option<Value> {
+        match body {
+            MethodBody::Source(source) => {
+                println!("Executing source: {}", source);
+                // Parse the source on-demand
+                match iowa_parser::parse(source) {
+                    Ok((_, chains)) if !chains.is_empty() => {
+                        println!("Successfully parsed, chain count: {}", chains.len());
+                        // Execute the first message chain
+                        let result = self.execute_message_chain(&chains[0]);
+                        println!("Chain execution result: {:?}", result);
+                        result
+                    }
+                    Ok((_, _chains)) => {
+                        println!("Parse succeeded but no chains found");
+                        None
+                    }
+                    Err(e) => {
+                        println!("Parse error: {:?}", e);
+                        None
+                    }
+                }
+            },
+            MethodBody::Bytecode(bytecode_data) => {
+                println!("Executing bytecode with {} bytes", bytecode_data.len());
+                
+                // Deserialize bytecode from raw bytes
+                let bytecode = self.deserialize_bytecode(bytecode_data);
+                
+                // Get current frame information for arguments
+                let (args, receiver) = match &self.current_frame {
+                    Some(frame) => {
+                        let args = frame.args().to_vec();
+                        let receiver = Value::Object(frame.receiver());
+                        (args, receiver)
+                    },
+                    None => (vec![], Value::Nil),
+                };
+                
+                // Create a bytecode VM and execute the bytecode
+                let mut vm = crate::runtime::bytecode::BytecodeVM::new(self as *mut Runtime);
+                let result = unsafe { vm.execute(&bytecode, &args, receiver) };
+                
+                println!("Bytecode execution result: {:?}", result);
+                Some(result)
+            }
+        }
+    }
+    
+    /// Deserialize a bytecode object from raw bytes
+    fn deserialize_bytecode(&self, data: &[u8]) -> crate::runtime::bytecode::Bytecode {
+        // Use the bytecode's deserialize method
+        match crate::runtime::bytecode::Bytecode::deserialize(data) {
+            Some(bytecode) => bytecode,
+            None => {
+                println!("Failed to deserialize bytecode, falling back to empty bytecode");
+                // Fall back to empty bytecode if deserialization fails
+                crate::runtime::bytecode::Bytecode::new()
+            }
+        }
+    }
+    
+    /// Execute a message chain in the context of a method
+    fn execute_message_chain(&mut self, chain: &iowa_parser::MessageChain) -> Option<Value> {
+        // Get the current frame
+        let current_frame = if let Some(frame) = self.current_frame.as_ref() {
+            frame
+        } else {
+            return None;
+        };
+        
+        // Check if there's already a return value
+        if let Some(return_value) = current_frame.return_value.as_ref() {
+            return Some(return_value.clone());
+        }
+        
+        println!("Executing chain with {} messages", chain.messages.len());
+        
+        // Execute each message in the chain
+        let mut result = Value::Nil;
+        let mut context = Value::Object(current_frame.receiver());
+        
+        for message in &chain.messages {
+            // Process control flow statements 
+            println!("Processing message with symbol: {:?}", message.symbol);
+            
+            // Handle return statements - can be operators or identifiers
+            let is_return = match &message.symbol {
+                iowa_parser::Symbol::Identifier(id) => id.name() == "return",
+                iowa_parser::Symbol::Operator(op) => op.symbol() == "return",
+                _ => false
+            };
+            
+            if is_return {
+                println!("Processing return statement");
+                // Handle return statement
+                if !message.args.is_empty() && !message.args[0].chains.is_empty() {
+                    // Execute the return expression
+                    println!("Executing return expression");
+                    let return_value = self.execute_message_chain(&message.args[0].chains[0])?;
+                    println!("Return expression result: {:?}", return_value);
+                    
+                    // Set the return value in the frame
+                    if let Some(frame) = self.current_frame.as_mut() {
+                        frame.set_return_value(return_value.clone());
+                        println!("Set return value in frame: {:?}", return_value);
+                    }
+                    
+                    return Some(return_value);
+                }
+                
+                // Return the current result if no argument provided
+                if let Some(frame) = self.current_frame.as_mut() {
+                    frame.set_return_value(result.clone());
+                }
+                
+                return Some(result);
+            } else if let iowa_parser::Symbol::Identifier(id) = &message.symbol {
+                if id.name() == "if" {
+                    // Handle if statement
+                    if message.args.len() >= 2 {
+                        // Execute the condition
+                        if !message.args[0].chains.is_empty() {
+                            let condition = self.execute_message_chain(&message.args[0].chains[0])?;
+                            
+                            // Check if the condition is true (non-nil and non-false)
+                            let is_true = match condition {
+                                Value::Nil => false,
+                                Value::Boolean(b) => b,
+                                _ => true,
+                            };
+                            
+                            if is_true {
+                                // Execute the then branch
+                                if !message.args[1].chains.is_empty() {
+                                    result = self.execute_message_chain(&message.args[1].chains[0])?;
+                                    
+                                    // Check if there's now a return value
+                                    if let Some(frame) = self.current_frame.as_ref() {
+                                        if let Some(return_value) = frame.return_value.as_ref() {
+                                            return Some(return_value.clone());
+                                        }
+                                    }
+                                }
+                            } else if message.args.len() >= 3 {
+                                // Execute the else branch if it exists
+                                if !message.args[2].chains.is_empty() {
+                                    result = self.execute_message_chain(&message.args[2].chains[0])?;
+                                    
+                                    // Check if there's now a return value
+                                    if let Some(frame) = self.current_frame.as_ref() {
+                                        if let Some(return_value) = frame.return_value.as_ref() {
+                                            return Some(return_value.clone());
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            continue;
+                        }
+                    }
+                }
+            }
+            
+            // For regular messages, evaluate the receiver and arguments
+            let receiver_value = match &message.symbol {
+                iowa_parser::Symbol::Identifier(id) => {
+                    // Look up the identifier in locals first
+                    if let Some(frame) = self.current_frame.as_ref() {
+                        println!("Looking up identifier: {}", id.name());
+                        
+                        // First try to find it in locals
+                        if let Some(local) = frame.get_local(id.name()) {
+                            println!("Found in locals: {:?}", local);
+                            local.clone()
+                        } else if id.name() == "method" {
+                            // Handle method definition
+                            // Arguments are the parameter names
+                            let mut arg_names = Vec::new();
+                            for (i, arg) in message.args.iter().enumerate() {
+                                // Skip the method body (last argument)
+                                if i < message.args.len() - 1 && !arg.chains.is_empty() {
+                                    // Get parameter name from identifier
+                                    if let Some(param_msg) = arg.chains[0].messages.first() {
+                                        if let iowa_parser::Symbol::Identifier(param_id) = &param_msg.symbol {
+                                            arg_names.push(param_id.name().to_string());
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Get method body (last argument)
+                            if !message.args.is_empty() {
+                                let last_arg = &message.args[message.args.len() - 1];
+                                
+                                if !last_arg.chains.is_empty() {
+                                    // We need to convert the body argument to source code
+                                    // In a real implementation, we'd serialize the AST back to source
+                                    // For now, just use a placeholder empty body
+                                    
+                                    // Create the method data
+                                    let method_data = MethodData {
+                                        args: arg_names,
+                                        body: MethodBody::Source("".to_string()),
+                                    };
+                                    
+                                    // Allocate the method object
+                                    let method_id = self.memory.alloc_method(MethodType::UserDefined(method_data));
+                                    Value::Object(method_id)
+                                } else {
+                                    // Empty body
+                                    Value::Object(0)
+                                }
+                            } else {
+                                // Return a default method if creation failed
+                                Value::Object(0)
+                            }
+                        } else {
+                            // Not found in locals, use as message to the context object
+                            context.clone()
+                        }
+                    } else {
+                        Value::Nil
+                    }
+                }
+                iowa_parser::Symbol::Number(n) => {
+                    match n {
+                        iowa_parser::Number::Decimal(value) => Value::Number(*value),
+                        iowa_parser::Number::Hex(value) => Value::Number(*value as f64),
+                    }
+                }
+                iowa_parser::Symbol::Quote(q) => Value::String(q.content().to_string()),
+                iowa_parser::Symbol::Operator(_op) => {
+                    // For operators, the context (previous result) is the receiver
+                    context.clone()
+                }
+            };
+            
+            // Compile arguments
+            let mut arg_values = Vec::new();
+            for arg in &message.args {
+                for chain in &arg.chains {
+                    if let Some(arg_value) = self.execute_message_chain(chain) {
+                        arg_values.push(arg_value);
+                    }
+                }
+            }
+            
+            // For numbers and strings, return them directly without message dispatch
+            if let iowa_parser::Symbol::Number(n) = &message.symbol {
+                println!("Got number: {:?}", n);
+                match n {
+                    iowa_parser::Number::Decimal(val) => return Some(Value::Number(*val)),
+                    iowa_parser::Number::Hex(val) => return Some(Value::Number(*val as f64)),
+                }
+            }
+            
+            if let iowa_parser::Symbol::Quote(q) = &message.symbol {
+                println!("Got string: {:?}", q);
+                return Some(Value::String(q.content().to_string()));
+            }
+            
+            // Get the message name
+            let message_name = match &message.symbol {
+                iowa_parser::Symbol::Identifier(id) => id.name(),
+                iowa_parser::Symbol::Operator(op) => op.symbol(),
+                iowa_parser::Symbol::Number(_) => "asNumber",
+                iowa_parser::Symbol::Quote(_) => "asString",
+            };
+            
+            // Special handling for assignment operator
+            if message_name == ":=" && !arg_values.is_empty() {
+                // For := operator, get the variable name from the previous message symbol
+                if let iowa_parser::Symbol::Identifier(id) = &message.symbol {
+                    let var_name = id.name().to_string();
+                    println!("Assigning variable: {} = {:?}", var_name, arg_values[0]);
+                    
+                    // Set the local variable
+                    if let Some(frame) = self.current_frame.as_mut() {
+                        frame.set_local(var_name, arg_values[0].clone());
+                        result = arg_values[0].clone();
+                    } else {
+                        result = Value::Nil;
+                    }
+                } else {
+                    // For non-identifier receivers, dispatch as regular message
+                    result = self.dispatch_message(receiver_value, message_name, arg_values);
+                }
+            } else {
+                // Regular message dispatch
+                result = self.dispatch_message(receiver_value, message_name, arg_values);
+            }
+            
+            // Check if there's now a return value from the dispatch
+            if let Some(frame) = self.current_frame.as_ref() {
+                if let Some(return_value) = frame.return_value.as_ref() {
+                    return Some(return_value.clone());
+                }
+            }
+            
+            // Update the context for the next message in the chain
+            context = result.clone();
+        }
+        
+        Some(result)
     }
     
     /// Call a primitive method
@@ -984,6 +1364,65 @@ impl Runtime {
         self.memory.alloc_number(Value::Number(value))
     }
     
+    /// Create a user-defined method from source code
+    pub fn create_method(&mut self, arg_names: Vec<String>, body_source: &str) -> Option<ObjectRef> {
+        // Verify that the source can be parsed
+        match iowa_parser::parse(body_source) {
+            Ok((_, chains)) => {
+                // Decide whether to use source or bytecode based on configuration
+                let use_bytecode = true; // Use bytecode execution by default
+                
+                let method_data = if use_bytecode && !chains.is_empty() {
+                    // Create method data with precompiled bytecode
+                    let method_data = MethodData {
+                        args: arg_names.clone(),
+                        body: MethodBody::Source(body_source.to_string()), // Temporary source reference
+                    };
+                    
+                    // Generate bytecode from the parsed AST
+                    let bytecode = crate::runtime::bytecode::Bytecode::from_message_chain(&chains[0], &method_data);
+                    
+                    // Serialize bytecode to bytes
+                    let bytecode_data = self.serialize_bytecode(&bytecode);
+                    
+                    // Create final method data with bytecode
+                    MethodData {
+                        args: arg_names,
+                        body: MethodBody::Bytecode(bytecode_data),
+                    }
+                } else {
+                    // Store the source directly for interpreted execution
+                    MethodData {
+                        args: arg_names,
+                        body: MethodBody::Source(body_source.to_string()),
+                    }
+                };
+                
+                // Allocate the method object
+                Some(self.memory.alloc_method(MethodType::UserDefined(method_data)))
+            }
+            _ => None,
+        }
+    }
+    
+    /// Create a user-defined method directly from bytecode
+    pub fn create_method_with_bytecode(&mut self, arg_names: Vec<String>, bytecode_data: Vec<u8>) -> Option<ObjectRef> {
+        // Create method data with bytecode
+        let method_data = MethodData {
+            args: arg_names,
+            body: MethodBody::Bytecode(bytecode_data),
+        };
+        
+        // Allocate the method object
+        Some(self.memory.alloc_method(MethodType::UserDefined(method_data)))
+    }
+    
+    /// Serialize a bytecode object to raw bytes
+    fn serialize_bytecode(&self, bytecode: &crate::runtime::bytecode::Bytecode) -> Vec<u8> {
+        // Use the bytecode's own serialization method
+        bytecode.serialize()
+    }
+    
     /// Run garbage collection
     pub fn collect_garbage(&mut self) {
         // We need to get the roots first to avoid self-borrowing issues
@@ -1068,6 +1507,8 @@ pub struct CallFrame {
     locals: HashMap<String, Value>,
     /// Arguments passed to the method
     args: Vec<Value>,
+    /// Return value (if any)
+    return_value: Option<Value>,
     /// Parent frame (for call stack)
     parent: Option<Box<CallFrame>>,
 }
@@ -1087,8 +1528,19 @@ impl CallFrame {
             message,
             locals: HashMap::new(),
             args,
+            return_value: None,
             parent,
         }
+    }
+    
+    /// Set the return value for this frame
+    pub fn set_return_value(&mut self, value: Value) {
+        self.return_value = Some(value);
+    }
+    
+    /// Get the return value, if any
+    pub fn return_value(&self) -> Option<&Value> {
+        self.return_value.as_ref()
     }
 
     /// Get the method
@@ -1240,7 +1692,7 @@ impl Memory {
     }
     
     /// Allocate a number object (for const value)
-    pub fn alloc_number_const(&self, value: f64) -> ObjectRef {
+    pub fn alloc_number_const(&self, _value: f64) -> ObjectRef {
         // Create number object in a way that doesn't require mutating memory
         // This is used for const value conversion
         let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
@@ -1281,7 +1733,7 @@ impl Memory {
     }
     
     /// Allocate a const string object
-    pub fn alloc_string_const(&self, s: &str) -> ObjectRef {
+    pub fn alloc_string_const(&self, _s: &str) -> ObjectRef {
         // Create string object in a way that doesn't require mutating memory
         // This is used for const string conversion
         let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
@@ -1531,7 +1983,7 @@ impl Memory {
 }
 
 /// Method types for Io
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum MethodType {
     /// Built-in method (implemented in Rust)
     Primitive(u32), // Index into primitive method table
@@ -1540,12 +1992,21 @@ pub enum MethodType {
 }
 
 /// Data for user-defined methods
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MethodData {
     /// List of argument names
     pub args: Vec<String>,
-    /// Method body (AST reference or bytecode)
-    pub body: Vec<u8>, // Placeholder for actual method body
+    /// Method body as an AST MessageChain
+    pub body: MethodBody,
+}
+
+/// Method body representation
+#[derive(Clone, Debug)]
+pub enum MethodBody {
+    /// Method body as a source string that can be parsed
+    Source(String),
+    /// Raw bytecode (for future optimized methods)
+    Bytecode(Vec<u8>),
 }
 
 /// Io object representation
@@ -1657,7 +2118,7 @@ impl fmt::Display for Object {
 }
 
 /// Type-specific object data
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ObjectData {
     /// Generic object (no special data)
     Generic,
@@ -1682,7 +2143,7 @@ pub mod trampoline {
     // We'll implement them to forward to the proper Runtime API
     
     /// Allocate an object
-    pub fn runtime_alloc_object(runtime: &mut Runtime, size: u32) -> u64 {
+    pub fn runtime_alloc_object(runtime: &mut Runtime, _size: u32) -> u64 {
         runtime.alloc_object(runtime.prototypes.object)
     }
     
@@ -1698,7 +2159,7 @@ pub mod trampoline {
     }
     
     /// Allocate a slots table
-    pub fn runtime_alloc_slots_table(runtime: &mut Runtime, size: u32) -> u64 {
+    pub fn runtime_alloc_slots_table(_runtime: &mut Runtime, _size: u32) -> u64 {
         // Just return a placeholder - slots are integrated into objects
         1
     }
@@ -1710,21 +2171,21 @@ pub mod trampoline {
     }
     
     /// Mark an object
-    pub fn runtime_gc_mark(runtime: &mut Runtime, obj: u64) -> i32 {
+    pub fn runtime_gc_mark(runtime: &mut Runtime, _obj: u64) -> i32 {
         // Just run full GC for simplicity
         runtime.collect_garbage();
         0 // Success
     }
     
     /// Check GC threshold
-    pub fn runtime_gc_check_threshold(runtime: &mut Runtime, allocated_bytes: u64) -> i32 {
+    pub fn runtime_gc_check_threshold(runtime: &mut Runtime, _allocated_bytes: u64) -> i32 {
         // Just run full GC for simplicity
         runtime.collect_garbage();
         0 // Success
     }
     
     /// Call a method
-    pub fn runtime_call_method(runtime: &mut Runtime, method: u64, receiver: u64, args: u64) -> u64 {
+    pub fn runtime_call_method(runtime: &mut Runtime, method: u64, receiver: u64, _args: u64) -> u64 {
         // Extract method name
         let method_name = match runtime.from_tagged_value(method) {
             Value::Object(id) => {
