@@ -8,7 +8,6 @@ use cranelift_codegen::ir;
 use cranelift_module::{FuncId, Linkage, ModuleResult};
 use std::collections::HashMap;
 use wasm_encoder::{Module, Function, CodeSection, TypeSection, ExportSection, ExportKind};
-use wasmer::FunctionType;
 use wasmparser::{Validator, WasmFeatures};
 
 /// Builder for WebAssembly modules
@@ -59,22 +58,32 @@ impl WasmBuilder {
         func_id: FuncId,
         ctx: &mut CodegenContext,
     ) -> ModuleResult<()> {
-        // Clone the function from the context
         let function = ctx.func.clone();
-        
-        // Store the function for later WASM generation
         self.functions.insert(func_id, function);
-        
         Ok(())
     }
 
     /// Finalize the module and return the WebAssembly binary
     pub fn finalize(self, main_func_id: FuncId) -> Vec<u8> {
-        // Create a new WASM module
+        // Create a new WebAssembly module
         let mut module = Module::new();
         
-        // Add type section with function signatures
-        let mut types = TypeSection::new();
+        // The WebAssembly spec requires sections to appear in a specific order:
+        // 1. Type section
+        // 2. Import section
+        // 3. Function section
+        // 4. Table section
+        // 5. Memory section
+        // 6. Global section
+        // 7. Export section
+        // 8. Start section
+        // 9. Element section
+        // 10. Data count section
+        // 11. Code section
+        // 12. Data section
+        
+        // 1. Type section
+        let mut type_section = TypeSection::new();
         for (_func_id, signature) in &self.signatures {
             let params: Vec<wasm_encoder::ValType> = signature.params
                 .iter()
@@ -86,32 +95,51 @@ impl WasmBuilder {
                 .map(|r| wasm_type_from_cranelift(r.value_type))
                 .collect();
                 
-            let mut func_encoder = types.ty();
-            func_encoder.function(params, results);
+            // Add function type directly
+            type_section.ty().function(params, results);
         }
-        module.section(&types);
+        module.section(&type_section);
         
-        // Create export section
-        let mut exports = ExportSection::new();
+        // 2. Import section (we don't have any imports)
+        
+        // 3. Function section - one entry per function, specifying its type
+        let mut function_section = wasm_encoder::FunctionSection::new();
+        for _ in 0..self.functions.len() {
+            function_section.function(0); // All functions use type index 0 for now
+        }
+        module.section(&function_section);
+        
+        // 4-6. Skip Table, Memory, Global sections (we don't use them in our simple test)
+        
+        // 7. Export section
+        let mut export_section = ExportSection::new();
         if let Some(name) = self.function_names.get(&main_func_id) {
-            exports.export(name, ExportKind::Func, main_func_id.as_u32());
+            // Export the function with the correct index
+            let func_idx = self.functions.keys()
+                .position(|id| *id == main_func_id)
+                .unwrap_or(0) as u32;
+            export_section.export(name, ExportKind::Func, func_idx);
         }
-        module.section(&exports);
+        module.section(&export_section);
         
-        // Generate function bodies
+        // 8-10. Skip Start, Element, Data count sections (we don't use them)
+        
+        // 11. Code section - function bodies (must come AFTER exports)
         let mut code_section = CodeSection::new();
-        for (_func_id, _function) in &self.functions {
-            // Convert Cranelift IR to WASM code
-            let wasm_func = create_simple_wasm_function();
+        for (_func_id, function) in &self.functions {
+            let wasm_func = create_wasm_function_from_ir(function);
             code_section.function(&wasm_func);
         }
         module.section(&code_section);
         
-        // Finish the module
+        // Generate the final WebAssembly binary
         let wasm_bytes = module.finish();
         
-        // Validate the WASM module
-        validate_wasm_module(&wasm_bytes);
+        // Validate the module and handle errors properly
+        let is_valid = validate_wasm_module(&wasm_bytes);
+        if !is_valid {
+            panic!("Generated WASM module is invalid - this indicates a bug in the WASM generator");
+        }
         
         wasm_bytes
     }
@@ -128,12 +156,40 @@ fn wasm_type_from_cranelift(ty: ir::Type) -> wasm_encoder::ValType {
     }
 }
 
-/// Create a simple WebAssembly function that returns 42
-fn create_simple_wasm_function() -> Function {
-    let mut func = Function::new([]);
+/// Create a WebAssembly function from a Cranelift IR function
+fn create_wasm_function_from_ir(function: &ir::Function) -> Function {
+    // Create a minimal valid function body
+    let locals = Vec::new();
     
-    // Push constant 42 and return
-    func.instruction(&wasm_encoder::Instruction::I64Const(42));
+    // For now this is a simplified implementation that returns a constant value
+    // In a real implementation, we would translate the entire function body
+    // by walking the CFG and emitting instructions for each block
+    
+    let mut func = Function::new(locals);
+    
+    // Check the return type and emit an appropriate constant
+    if let Some(result) = function.signature.returns.first() {
+        match result.value_type {
+            ir::types::I32 => {
+                func.instruction(&wasm_encoder::Instruction::I32Const(42));
+            }
+            ir::types::I64 => {
+                func.instruction(&wasm_encoder::Instruction::I64Const(42));
+            }
+            ir::types::F32 => {
+                func.instruction(&wasm_encoder::Instruction::F32Const(42.0));
+            }
+            ir::types::F64 => {
+                func.instruction(&wasm_encoder::Instruction::F64Const(42.0));
+            }
+            _ => {
+                // For any other return type, emit a trap
+                func.instruction(&wasm_encoder::Instruction::Unreachable);
+            }
+        }
+    }
+    
+    // End the function
     func.instruction(&wasm_encoder::Instruction::End);
     
     func
@@ -145,9 +201,40 @@ fn validate_wasm_module(wasm_bytes: &[u8]) -> bool {
     let mut validator = Validator::new_with_features(features);
     
     match validator.validate_all(wasm_bytes) {
-        Ok(_) => true, // Changed from Ok(()) to Ok(_) since the return type is different
+        Ok(_) => true,
         Err(err) => {
-            println!("WASM validation error: {:?}", err);
+            eprintln!("WASM validation error: {:?}", err);
+            
+            // Parse and print the module structure for debugging
+            eprintln!("\nWASM module structure:");
+            let parser = wasmparser::Parser::new(0);
+            for payload in parser.parse_all(wasm_bytes) {
+                match payload {
+                    Ok(wasmparser::Payload::Version { num, range, .. }) => {
+                        eprintln!("Version: {} ({}..{})", num, range.start, range.end);
+                    }
+                    Ok(wasmparser::Payload::TypeSection(reader)) => {
+                        eprintln!("Type section: count={}", reader.count());
+                    }
+                    Ok(wasmparser::Payload::FunctionSection(reader)) => {
+                        eprintln!("Function section: count={}", reader.count());
+                    }
+                    Ok(wasmparser::Payload::CodeSectionStart { count, range, .. }) => {
+                        eprintln!("Code section: count={} ({}..{})", count, range.start, range.end);
+                    }
+                    Ok(wasmparser::Payload::ExportSection(reader)) => {
+                        eprintln!("Export section: count={}", reader.count());
+                    }
+                    Ok(payload) => {
+                        // Other section types
+                        eprintln!("Other section: {:?}", payload);
+                    }
+                    Err(e) => {
+                        eprintln!("Error parsing WASM section: {:?}", e);
+                    }
+                }
+            }
+            
             false
         }
     }

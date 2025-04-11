@@ -66,9 +66,6 @@ impl Runtime {
     
     /// Initialize the runtime
     fn initialize(&mut self) {
-        // Create memory manager
-        self.memory = Memory::new();
-        
         // Create core prototypes
         self.prototypes.object = self.create_object_prototype();
         self.prototypes.number = self.create_number_prototype();
@@ -82,93 +79,54 @@ impl Runtime {
     
     /// Create the Object prototype
     fn create_object_prototype(&mut self) -> ObjectRef {
-        // Object is the root object with no prototype
         let obj_id = self.memory.alloc_object(0);
-        
-        // Get mutable reference to configure
         let obj = self.memory.get_object_mut(obj_id).unwrap();
-        
-        // Set its own prototype to itself (completes the chain)
         obj.prototype = obj_id;
-        
-        // Add type slot
         obj.set_slot("type".to_string(), Value::String("Object".to_string()));
-        
         obj_id
     }
     
     /// Create the Number prototype
     fn create_number_prototype(&mut self) -> ObjectRef {
         let obj_id = self.memory.alloc_object(self.prototypes.object);
-        
-        // Get mutable reference to configure
         let obj = self.memory.get_object_mut(obj_id).unwrap();
-        
-        // Add type slot
         obj.set_slot("type".to_string(), Value::String("Number".to_string()));
-        
-        // Add primitive methods
         self.add_number_methods(obj_id);
-        
         obj_id
     }
     
     /// Create the String prototype
     fn create_string_prototype(&mut self) -> ObjectRef {
         let obj_id = self.memory.alloc_object(self.prototypes.object);
-        
-        // Get mutable reference to configure
         let obj = self.memory.get_object_mut(obj_id).unwrap();
-        
-        // Add type slot
         obj.set_slot("type".to_string(), Value::String("String".to_string()));
-        
-        // Add primitive methods
         self.add_string_methods(obj_id);
-        
         obj_id
     }
     
     /// Create the List prototype
     fn create_list_prototype(&mut self) -> ObjectRef {
         let obj_id = self.memory.alloc_object(self.prototypes.object);
-        
-        // Get mutable reference to configure
         let obj = self.memory.get_object_mut(obj_id).unwrap();
-        
-        // Add type slot
         obj.set_slot("type".to_string(), Value::String("List".to_string()));
-        
-        // Add primitive methods
         self.add_list_methods(obj_id);
-        
         obj_id
     }
     
     /// Create the Map prototype
     fn create_map_prototype(&mut self) -> ObjectRef {
         let obj_id = self.memory.alloc_object(self.prototypes.object);
-        
-        // Get mutable reference to configure
         let obj = self.memory.get_object_mut(obj_id).unwrap();
-        
-        // Add type slot
         obj.set_slot("type".to_string(), Value::String("Map".to_string()));
-        
-        // Add primitive methods
         self.add_map_methods(obj_id);
-        
         obj_id
     }
     
     /// Create the Lobby object
     fn create_lobby(&mut self) -> ObjectRef {
         let obj_id = self.memory.alloc_object(self.prototypes.object);
-        
-        // Get mutable reference to configure
         let obj = self.memory.get_object_mut(obj_id).unwrap();
         
-        // Add prototype objects as slots
         obj.set_slot("Object".to_string(), Value::Object(self.prototypes.object));
         obj.set_slot("Number".to_string(), Value::Object(self.prototypes.number));
         obj.set_slot("String".to_string(), Value::Object(self.prototypes.string));
@@ -180,15 +138,12 @@ impl Runtime {
     
     /// Add primitive methods to Number prototype
     fn add_number_methods(&mut self, proto_id: ObjectRef) {
-        // Create primitive methods first
         let add_method = self.memory.alloc_method(MethodType::Primitive(1));
         let sub_method = self.memory.alloc_method(MethodType::Primitive(2));
         let mul_method = self.memory.alloc_method(MethodType::Primitive(3));
         let div_method = self.memory.alloc_method(MethodType::Primitive(4));
         
-        // Then add them to the object
         if let Some(obj) = self.memory.get_object_mut(proto_id) {
-            // Add methods as slots
             obj.set_slot("+".to_string(), Value::Object(add_method));
             obj.set_slot("-".to_string(), Value::Object(sub_method));
             obj.set_slot("*".to_string(), Value::Object(mul_method));
@@ -198,14 +153,11 @@ impl Runtime {
     
     /// Add primitive methods to String prototype
     fn add_string_methods(&mut self, proto_id: ObjectRef) {
-        // Create primitive methods first
         let size_method = self.memory.alloc_method(MethodType::Primitive(10));
         let at_method = self.memory.alloc_method(MethodType::Primitive(11));
         let slice_method = self.memory.alloc_method(MethodType::Primitive(12));
         
-        // Then add them to the object
         if let Some(obj) = self.memory.get_object_mut(proto_id) {
-            // Add methods as slots
             obj.set_slot("size".to_string(), Value::Object(size_method));
             obj.set_slot("at".to_string(), Value::Object(at_method));
             obj.set_slot("slice".to_string(), Value::Object(slice_method));
@@ -214,14 +166,11 @@ impl Runtime {
     
     /// Add primitive methods to List prototype
     fn add_list_methods(&mut self, proto_id: ObjectRef) {
-        // Create primitive methods first
         let size_method = self.memory.alloc_method(MethodType::Primitive(20));
         let at_method = self.memory.alloc_method(MethodType::Primitive(21));
         let append_method = self.memory.alloc_method(MethodType::Primitive(22));
         
-        // Then add them to the object
         if let Some(obj) = self.memory.get_object_mut(proto_id) {
-            // Add methods as slots
             obj.set_slot("size".to_string(), Value::Object(size_method));
             obj.set_slot("at".to_string(), Value::Object(at_method));
             obj.set_slot("append".to_string(), Value::Object(append_method));
@@ -230,14 +179,11 @@ impl Runtime {
     
     /// Add primitive methods to Map prototype
     fn add_map_methods(&mut self, proto_id: ObjectRef) {
-        // Create primitive methods first
         let size_method = self.memory.alloc_method(MethodType::Primitive(30));
         let at_method = self.memory.alloc_method(MethodType::Primitive(31));
         let at_put_method = self.memory.alloc_method(MethodType::Primitive(32));
         
-        // Then add them to the object
         if let Some(obj) = self.memory.get_object_mut(proto_id) {
-            // Add methods as slots
             obj.set_slot("size".to_string(), Value::Object(size_method));
             obj.set_slot("at".to_string(), Value::Object(at_method));
             obj.set_slot("atPut".to_string(), Value::Object(at_put_method));
@@ -277,43 +223,30 @@ impl Runtime {
     
     /// Dispatch a message to an object
     pub fn dispatch_message(&mut self, receiver: Value, message_name: &str, args: Vec<Value>) -> Value {
-        println!("Dispatching message: {} to {:?}", message_name, receiver);
-        // Get receiver object
         let receiver_id = match receiver {
             Value::Object(id) => id,
             _ => {
-                // For non-object receivers, try to coerce to appropriate type
                 return self.handle_primitive_message(receiver, message_name, args);
             }
         };
         
-        // Look up the slot in the receiver's prototype chain
-        println!("Looking up slot '{}' in receiver {}", message_name, receiver_id);
         let method = match self.memory.get_object(receiver_id) {
             Some(obj) => {
-                println!("Found receiver object with type: {}", obj.type_name());
-                let slot_value = obj.lookup_slot(message_name, self);
-                println!("Slot lookup result: {:?}", slot_value);
-                slot_value
+                obj.lookup_slot(message_name, self)
             },
             None => {
-                println!("Receiver object not found");
                 Value::Nil
             },
         };
         
-        // If no method found, try forward
         let method = match method {
             Value::Nil => {
-                // Try forward
                 if let Some(obj) = self.memory.get_object(receiver_id) {
                     let forward = obj.lookup_slot("forward", self);
                     if let Value::Object(_) = forward {
-                        // Create arguments with the message name
                         let mut forward_args = vec![Value::String(message_name.to_string())];
                         forward_args.extend(args);
                         
-                        // Call the forward method
                         return self.dispatch_message(Value::Object(receiver_id), "forward", forward_args);
                     }
                 }
@@ -322,7 +255,6 @@ impl Runtime {
             m => m,
         };
         
-        // Call the method
         self.call_method(method, receiver, message_name, args)
     }
     
@@ -469,23 +401,18 @@ impl Runtime {
     
     /// Call a method
     fn call_method(&mut self, method: Value, receiver: Value, message_name: &str, args: Vec<Value>) -> Value {
-        println!("Calling method: method={:?}, receiver={:?}, message={}", method, receiver, message_name);
-        // Get method object ID
         let method_id = match method {
             Value::Object(id) => id,
-            _ => return Value::Nil, // Not callable
+            _ => return Value::Nil,
         };
         
-        // Get receiver ID
         let receiver_id = match receiver {
             Value::Object(id) => id,
             _ => {
-                // Box primitive value into an object
                 match receiver.clone() {
                     Value::Number(n) => self.memory.alloc_number(Value::Number(n)),
                     Value::String(s) => self.memory.alloc_string(Value::String(s.clone())),
                     Value::Boolean(b) => {
-                        // Create a boolean object
                         let id = self.memory.alloc_object(self.prototypes.object);
                         if let Some(obj) = self.memory.get_object_mut(id) {
                             obj.set_slot("value".to_string(), Value::Boolean(b));
@@ -493,7 +420,6 @@ impl Runtime {
                         id
                     }
                     _ => {
-                        // Create a nil object
                         let id = self.memory.alloc_object(self.prototypes.object);
                         if let Some(obj) = self.memory.get_object_mut(id) {
                             obj.set_slot("value".to_string(), Value::Nil);
@@ -504,40 +430,23 @@ impl Runtime {
             }
         };
         
-        // Need to break up the borrow patterns to avoid conflicts
-        // First check if the method is valid and get its type
-        println!("Looking up method ID: {}", method_id);
         let method_type = match self.memory.get_object(method_id) {
             Some(obj) => {
-                println!("Found method object with data type: {:?}", obj.data);
                 match &obj.data {
-                    ObjectData::Method(method_type) => {
-                        println!("Method type: {:?}", method_type);
-                        Some(method_type.clone())
-                    },
-                    _ => {
-                        println!("Not a method object");
-                        None // Not a method
-                    }
+                    ObjectData::Method(method_type) => Some(method_type.clone()),
+                    _ => None
                 }
             }
-            None => {
-                println!("Method object not found");
-                None
-            },
+            None => None,
         };
         
-        // Then process based on the method type
         match method_type {
             Some(MethodType::Primitive(index)) => {
-                // Call primitive method
                 self.call_primitive_method(index, receiver_id, args)
             }
             Some(MethodType::UserDefined(method_data)) => {
-                // Push call frame
                 self.push_call_frame(method_id, receiver_id, message_name.to_string(), args.clone());
                 
-                // Set up arguments in locals
                 if let Some(frame) = &mut self.current_frame {
                     for (i, arg_name) in method_data.args.iter().enumerate() {
                         if let Some(arg_value) = args.get(i) {
@@ -546,27 +455,18 @@ impl Runtime {
                     }
                 }
                 
-                // Execute the method body
-                // Get the current frame
-                let _current_frame = self.current_frame.as_ref().expect("Frame must exist");
-                println!("Executing method body: {:?}", &method_data.body);
                 let result = self.execute_method_body(&method_data.body);
                 
-                // If there's no explicit return value, return the receiver
                 let result = match result {
                     Some(val) => val,
                     None => receiver.clone(),
                 };
                 
-                // Pop call frame
                 self.pop_call_frame();
                 
                 result
             }
-            None => {
-                // Not a method or method not found
-                Value::Nil
-            }
+            None => Value::Nil
         }
     }
     
@@ -574,13 +474,8 @@ impl Runtime {
     fn execute_method_body(&mut self, body: &MethodBody) -> Option<Value> {
         match body {
             MethodBody::Source(source) => {
-                println!("Executing source: {}", source);
-                // Parse the source on-demand
                 match iowa_parser::parse(source) {
                     Ok((_, chains)) if !chains.is_empty() => {
-                        println!("Successfully parsed, chain count: {}", chains.len());
-                        
-                        // Get current frame information for arguments
                         let (args, receiver) = match &self.current_frame {
                             Some(frame) => {
                                 let args = frame.args().to_vec();
@@ -590,32 +485,20 @@ impl Runtime {
                             None => (vec![], Value::Nil),
                         };
                         
-                        // Create method info for WASM compilation
                         let method_data = MethodData {
-                            args: vec![], // No formal arguments for now
+                            args: vec![],
                             body: MethodBody::Source(source.clone()),
                         };
                         
-                        // Create a WasmMethod and execute it
                         let method = crate::runtime::wasm_runtime::WasmMethod::from_ast(&chains[0], &method_data, self);
                         let result = method.execute(self, &args, receiver);
-                        println!("WASM method execution result: {:?}", result);
                         Some(result)
                     }
-                    Ok((_, _chains)) => {
-                        println!("Parse succeeded but no chains found");
-                        None
-                    }
-                    Err(e) => {
-                        println!("Parse error: {:?}", e);
-                        None
-                    }
+                    Ok((_, _)) => None,
+                    Err(_) => None
                 }
             },
             MethodBody::WasmModule(wasm_bytes) => {
-                println!("Executing WASM module with {} bytes", wasm_bytes.len());
-                
-                // Get current frame information for arguments
                 let (args, receiver) = match &self.current_frame {
                     Some(frame) => {
                         let args = frame.args().to_vec();
@@ -625,48 +508,15 @@ impl Runtime {
                     None => (vec![], Value::Nil),
                 };
                 
-                // For WASM method execution, we can directly execute the WASM module
-                let mut store = wasmer::Store::default();
-                let module = wasmer::Module::new(&store, wasm_bytes)
-                    .map_err(|e| println!("WASM module compilation error: {:?}", e))
-                    .ok()?;
+                let wasm_method = crate::runtime::wasm_runtime::WasmMethod::from_module(
+                    wasm_bytes.clone(),
+                    vec![],
+                    15,
+                    true,
+                );
                 
-                // Create imports for runtime functions
-                let imports = wasmer::imports! {};
-                
-                // Instantiate the module
-                let instance = wasmer::Instance::new(&mut store, &module, &imports)
-                    .map_err(|e| println!("WASM instantiation error: {:?}", e))
-                    .ok()?;
-                
-                // Get the exported "main" function
-                let main_func = instance.exports.get_function("main")
-                    .map_err(|e| println!("WASM function error: {:?}", e))
-                    .ok()?;
-                
-                // Prepare arguments (converting from Io values to WASM values)
-                let wasm_args: Vec<wasmer::Value> = args.iter()
-                    .map(|arg| {
-                        let tag_val: i64 = self.to_tagged_value(arg).try_into().unwrap_or(0);
-                        wasmer::Value::I64(tag_val)
-                    })
-                    .collect();
-                
-                // Call the function
-                let result = main_func.call(&mut store, &wasm_args)
-                    .map_err(|e| println!("WASM execution error: {:?}", e))
-                    .ok()?;
-                
-                // Convert the result back to an Io value
-                if let Some(wasmer::Value::I64(raw_value)) = result.first() {
-                    let u_val: u64 = (*raw_value).try_into().unwrap_or(0);
-                    let value = self.from_tagged_value(u_val);
-                    println!("WASM execution result: {:?}", value);
-                    Some(value)
-                } else {
-                    println!("WASM execution returned no result");
-                    Some(Value::Nil)
-                }
+                let result = wasm_method.execute(self, &args, receiver);
+                Some(result)
             }
         }
     }
@@ -1458,7 +1308,6 @@ impl Runtime {
     
     /// Run garbage collection
     pub fn collect_garbage(&mut self) {
-        // We need to get the roots first to avoid self-borrowing issues
         let lobby = self.lobby;
         let object_proto = self.prototypes.object;
         let number_proto = self.prototypes.number;
@@ -1468,12 +1317,10 @@ impl Runtime {
         
         let mut call_frame_roots = Vec::new();
         
-        // Extract data from current frame if any
         if let Some(frame) = &self.current_frame {
             call_frame_roots.push(frame.method);
             call_frame_roots.push(frame.receiver);
             
-            // Add values from arguments and locals
             for arg in &frame.args {
                 if let Value::Object(id) = arg {
                     call_frame_roots.push(*id);
@@ -1487,7 +1334,6 @@ impl Runtime {
             }
         }
         
-        // Now we can call the memory's collect_garbage with all our roots
         self.memory.collect_garbage_with_roots(
             &[lobby, object_proto, number_proto, string_proto, list_proto, map_proto],
             &call_frame_roots
@@ -1873,11 +1719,12 @@ impl Memory {
         self.objects.get_mut(&id)
     }
     
-    /// Check if GC should run
+    /// Check if GC should run, and trigger it by collecting roots from objects
     fn check_gc_threshold(&mut self) {
         if self.allocated_since_gc > self.gc_threshold {
-            // GC needs full runtime access, but we don't have it here
-            // This will be handled by the caller
+            // Just clean up objects without roots
+            let roots: Vec<ObjectRef> = Vec::new();
+            self.collect_garbage_with_roots(&roots, &roots);
         }
     }
     
@@ -1914,29 +1761,6 @@ impl Memory {
         self.allocated_since_gc = 0;
     }
     
-    /// Legacy method for backward compatibility
-    #[deprecated]
-    pub fn collect_garbage(&mut self, runtime: &Runtime) {
-        // Create arrays of roots
-        let object_roots = [
-            runtime.lobby(),
-            runtime.prototypes().object,
-            runtime.prototypes().number,
-            runtime.prototypes().string,
-            runtime.prototypes().list,
-            runtime.prototypes().map,
-        ];
-        
-        let mut value_roots = Vec::new();
-        
-        // Add call frame roots if any
-        if let Some(frame) = runtime.current_frame() {
-            value_roots.push(frame.method);
-            value_roots.push(frame.receiver);
-        }
-        
-        self.collect_garbage_with_roots(&object_roots, &value_roots);
-    }
     
     /// Mark an object as reachable
     fn mark_object(&mut self, id: ObjectRef) {
@@ -2007,12 +1831,6 @@ impl Memory {
         // No need to mark entries separately, they're included in items_to_mark
     }
     
-    /// Mark a value as reachable
-    fn mark_value(&mut self, value: &Value) {
-        if let Value::Object(id) = value {
-            self.mark_object(*id);
-        }
-    }
 }
 
 /// Method types for Io
