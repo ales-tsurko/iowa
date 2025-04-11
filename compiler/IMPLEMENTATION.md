@@ -112,25 +112,28 @@ The focus is on WASM as a standalone format for dedicated runtimes like Wasmer, 
   - ✓ Translating Io AST to WebAssembly
   - ✓ Runtime support for dynamic typing in WASM
   - ✓ Memory management for WebAssembly
-  - Argument handling and message chain compilation
+  - ✓ IR to WASM instruction translation
+  - ✓ Argument handling and message chain compilation
+  - ◯ Type compatibility in WASM generation (fixing type mismatch errors)
 
 - **Wasmer Integration**
   - ✓ WASM module loading and execution
   - ✓ Basic runtime imports
-  - Complex argument passing
-  - Interoperation with external WASM modules
+  - ◯ Type conversions between i32/i64 for WASM compatibility
+  - ◯ Complex argument passing
+  - ◯ Interoperation with external WASM modules
 
 - **Runtime Methods**
-  - Implementation of core Io methods
-  - Support for primitive methods
+  - ◯ Implementation of core Io methods
+  - ◯ Support for primitive methods
 
 - **Garbage Collection**
-  - Integration with the object system
-  - Mark and sweep implementation
+  - ◯ Integration with the object system
+  - ◯ Mark and sweep implementation
 
 - **Call Frame**
-  - Context for method activation
-  - Call stack handling
+  - ◯ Context for method activation
+  - ◯ Call stack handling
 
 ### Future Work:
 
@@ -239,6 +242,12 @@ This section details the implementation of WebAssembly memory management for the
    - ✓ Implemented value array serialization for arguments
    - ✓ Added read/write functions for values and strings
 
+4. **Cranelift IR to WASM Translation**
+   - ✓ Implementation of IR translation to WASM instructions
+   - ✓ Support for basic operations (constants, arithmetic, etc.)
+   - ✓ Local variable allocation and management
+   - ◯ Type compatibility (need to fix i32/i64 mismatches)
+
 ##### In Progress:
 
 1. **Argument Handling**
@@ -267,6 +276,12 @@ This section details the implementation of WebAssembly memory management for the
    - ◯ Specialized compilation paths for common message patterns
    - ◯ Method call inlining for performance-critical code paths
    - ◯ Memory allocation optimization for argument arrays
+   
+5. **Type Compatibility Issues** (New)
+   - ◯ Fix type mismatch errors in WASM validation (i32/i64)
+   - ◯ Ensure proper type conversions between Cranelift IR and WASM
+   - ◯ Consistent type usage across function calls
+   - ◯ Proper handling of return types
 
 
 ## WebAssembly Module Integration

@@ -162,39 +162,282 @@ fn wasm_type_from_cranelift(ty: ir::Type) -> wasm_encoder::ValType {
 
 /// Create a WebAssembly function from a Cranelift IR function
 fn create_wasm_function_from_ir(function: &ir::Function) -> Function {
-    // Create a minimal valid function body
-    let locals = Vec::new();
+    use cranelift_codegen::ir::Opcode;
+    use std::collections::HashMap;
+    use wasm_encoder::Instruction as WasmInst;
 
-    // For now this is a simplified implementation that returns a constant value
-    // In a real implementation, we would translate the entire function body
-    // by walking the CFG and emitting instructions for each block
+    // Analyze and allocate locals for the function
+    let mut value_map = HashMap::new(); // Maps Cranelift values to WASM locals
+    let mut next_local = 0u32;
 
-    let mut func = Function::new(locals);
+    // Count locals by type for wasm-encoder's expected format
+    let mut i32_locals = 0u32;
+    let mut i64_locals = 0u32;
+    let mut f32_locals = 0u32;
+    let mut f64_locals = 0u32;
 
-    // Check the return type and emit an appropriate constant
+    // Collect all local variables needed from the Cranelift IR
+    for block in function.layout.blocks() {
+        for inst in function.layout.block_insts(block) {
+            // Skip instruction types that don't produce values
+            let results = function.dfg.inst_results(inst);
+            if results.is_empty() {
+                continue;
+            }
+
+            // For instructions that produce values, allocate a local for each result
+            for &value in results {
+                let ty = function.dfg.value_type(value);
+                value_map.insert(value, next_local);
+
+                // Count locals by type
+                match ty {
+                    ir::types::I32 => i32_locals += 1,
+                    ir::types::I64 => i64_locals += 1,
+                    ir::types::F32 => f32_locals += 1,
+                    ir::types::F64 => f64_locals += 1,
+                    _ => {} // Ignore other types for now
+                }
+
+                next_local += 1;
+            }
+        }
+    }
+
+    // Create a Vec of (count, type) pairs for wasm-encoder
+    let mut wasm_locals = Vec::new();
+    if i32_locals > 0 {
+        wasm_locals.push((i32_locals, wasm_encoder::ValType::I32));
+    }
+    if i64_locals > 0 {
+        wasm_locals.push((i64_locals, wasm_encoder::ValType::I64));
+    }
+    if f32_locals > 0 {
+        wasm_locals.push((f32_locals, wasm_encoder::ValType::F32));
+    }
+    if f64_locals > 0 {
+        wasm_locals.push((f64_locals, wasm_encoder::ValType::F64));
+    }
+
+    // Create WASM function with locals
+    let mut func = Function::new(wasm_locals);
+
+    // Process each block in order they appear in the function
+    for block in function.layout.blocks() {
+        // Process each instruction in the block
+        for inst in function.layout.block_insts(block) {
+            // Get the opcode for this instruction
+            let opcode = function.dfg.insts[inst].opcode();
+
+            match opcode {
+                // Integer constants
+                Opcode::Iconst => {
+                    // Get the immediate value from the instruction data
+                    let imm = match &function.dfg.insts[inst] {
+                        cranelift_codegen::ir::InstructionData::UnaryImm { imm, .. } => imm.bits(),
+                        _ => continue, // Skip if unexpected format
+                    };
+
+                    let result_type = function.dfg.ctrl_typevar(inst);
+                    let value = match result_type {
+                        ir::types::I32 => WasmInst::I32Const(imm as i32),
+                        ir::types::I64 => WasmInst::I64Const(imm),
+                        _ => continue, // Skip unsupported types
+                    };
+
+                    func.instruction(&value);
+
+                    // Store to local if needed
+                    if let Some(result) = function.dfg.inst_results(inst).first() {
+                        if let Some(&local) = value_map.get(result) {
+                            func.instruction(&WasmInst::LocalSet(local));
+                        }
+                    }
+                }
+
+                // Floating point constants
+                Opcode::F32const => {
+                    // Get the immediate value from the instruction data
+                    let bits = match &function.dfg.insts[inst] {
+                        cranelift_codegen::ir::InstructionData::UnaryIeee32 { imm, .. } => {
+                            imm.bits()
+                        }
+                        _ => continue, // Skip if unexpected format
+                    };
+
+                    let f = f32::from_bits(bits);
+                    func.instruction(&WasmInst::F32Const(f));
+
+                    // Store to local
+                    if let Some(result) = function.dfg.inst_results(inst).first() {
+                        if let Some(&local) = value_map.get(result) {
+                            func.instruction(&WasmInst::LocalSet(local));
+                        }
+                    }
+                }
+
+                Opcode::F64const => {
+                    // Get the immediate value from the instruction data
+                    let bits = match &function.dfg.insts[inst] {
+                        cranelift_codegen::ir::InstructionData::UnaryIeee64 { imm, .. } => {
+                            imm.bits()
+                        }
+                        _ => continue, // Skip if unexpected format
+                    };
+
+                    let f = f64::from_bits(bits);
+                    func.instruction(&WasmInst::F64Const(f));
+
+                    // Store to local
+                    if let Some(result) = function.dfg.inst_results(inst).first() {
+                        if let Some(&local) = value_map.get(result) {
+                            func.instruction(&WasmInst::LocalSet(local));
+                        }
+                    }
+                }
+
+                // Binary operations
+                Opcode::Iadd
+                | Opcode::Isub
+                | Opcode::Imul
+                | Opcode::Udiv
+                | Opcode::Sdiv
+                | Opcode::Urem
+                | Opcode::Srem
+                | Opcode::Band
+                | Opcode::Bor
+                | Opcode::Bxor
+                | Opcode::Ishl
+                | Opcode::Ushr
+                | Opcode::Sshr
+                | Opcode::Fadd
+                | Opcode::Fsub
+                | Opcode::Fmul
+                | Opcode::Fdiv
+                | Opcode::Fmin
+                | Opcode::Fmax => {
+                    let args = function.dfg.inst_args(inst);
+
+                    // Skip if we don't have exactly two arguments
+                    if args.len() != 2 {
+                        continue;
+                    }
+
+                    // Load operands from locals if needed
+                    for &arg in &args[0..2] {
+                        if let Some(&local) = value_map.get(&arg) {
+                            func.instruction(&WasmInst::LocalGet(local));
+                        }
+                    }
+
+                    // Translate the binary operation
+                    if let Some(result) = function.dfg.inst_results(inst).first() {
+                        let result_type = function.dfg.value_type(*result);
+
+                        let wasm_inst = match (opcode, result_type) {
+                            (Opcode::Iadd, ir::types::I32) => Some(WasmInst::I32Add),
+                            (Opcode::Iadd, ir::types::I64) => Some(WasmInst::I64Add),
+                            (Opcode::Isub, ir::types::I32) => Some(WasmInst::I32Sub),
+                            (Opcode::Isub, ir::types::I64) => Some(WasmInst::I64Sub),
+                            (Opcode::Imul, ir::types::I32) => Some(WasmInst::I32Mul),
+                            (Opcode::Imul, ir::types::I64) => Some(WasmInst::I64Mul),
+                            (Opcode::Udiv, ir::types::I32) => Some(WasmInst::I32DivU),
+                            (Opcode::Udiv, ir::types::I64) => Some(WasmInst::I64DivU),
+                            (Opcode::Sdiv, ir::types::I32) => Some(WasmInst::I32DivS),
+                            (Opcode::Sdiv, ir::types::I64) => Some(WasmInst::I64DivS),
+                            (Opcode::Urem, ir::types::I32) => Some(WasmInst::I32RemU),
+                            (Opcode::Urem, ir::types::I64) => Some(WasmInst::I64RemU),
+                            (Opcode::Srem, ir::types::I32) => Some(WasmInst::I32RemS),
+                            (Opcode::Srem, ir::types::I64) => Some(WasmInst::I64RemS),
+                            (Opcode::Band, ir::types::I32) => Some(WasmInst::I32And),
+                            (Opcode::Band, ir::types::I64) => Some(WasmInst::I64And),
+                            (Opcode::Bor, ir::types::I32) => Some(WasmInst::I32Or),
+                            (Opcode::Bor, ir::types::I64) => Some(WasmInst::I64Or),
+                            (Opcode::Bxor, ir::types::I32) => Some(WasmInst::I32Xor),
+                            (Opcode::Bxor, ir::types::I64) => Some(WasmInst::I64Xor),
+                            (Opcode::Ishl, ir::types::I32) => Some(WasmInst::I32Shl),
+                            (Opcode::Ishl, ir::types::I64) => Some(WasmInst::I64Shl),
+                            (Opcode::Ushr, ir::types::I32) => Some(WasmInst::I32ShrU),
+                            (Opcode::Ushr, ir::types::I64) => Some(WasmInst::I64ShrU),
+                            (Opcode::Sshr, ir::types::I32) => Some(WasmInst::I32ShrS),
+                            (Opcode::Sshr, ir::types::I64) => Some(WasmInst::I64ShrS),
+                            (Opcode::Fadd, ir::types::F32) => Some(WasmInst::F32Add),
+                            (Opcode::Fadd, ir::types::F64) => Some(WasmInst::F64Add),
+                            (Opcode::Fsub, ir::types::F32) => Some(WasmInst::F32Sub),
+                            (Opcode::Fsub, ir::types::F64) => Some(WasmInst::F64Sub),
+                            (Opcode::Fmul, ir::types::F32) => Some(WasmInst::F32Mul),
+                            (Opcode::Fmul, ir::types::F64) => Some(WasmInst::F64Mul),
+                            (Opcode::Fdiv, ir::types::F32) => Some(WasmInst::F32Div),
+                            (Opcode::Fdiv, ir::types::F64) => Some(WasmInst::F64Div),
+                            (Opcode::Fmin, ir::types::F32) => Some(WasmInst::F32Min),
+                            (Opcode::Fmin, ir::types::F64) => Some(WasmInst::F64Min),
+                            (Opcode::Fmax, ir::types::F32) => Some(WasmInst::F32Max),
+                            (Opcode::Fmax, ir::types::F64) => Some(WasmInst::F64Max),
+                            _ => None,
+                        };
+
+                        if let Some(binary_inst) = wasm_inst {
+                            func.instruction(&binary_inst);
+
+                            // Store result to local
+                            if let Some(&local) = value_map.get(result) {
+                                func.instruction(&WasmInst::LocalSet(local));
+                            }
+                        }
+                    }
+                }
+
+                // Return instruction
+                Opcode::Return => {
+                    let args = function.dfg.inst_args(inst);
+
+                    // If there are return values, load them from locals
+                    if !args.is_empty() {
+                        if let Some(&local) = value_map.get(&args[0]) {
+                            func.instruction(&WasmInst::LocalGet(local));
+                        }
+                    }
+
+                    // Add return instruction
+                    func.instruction(&WasmInst::Return);
+                }
+
+                // Branch and jump instructions - simplified for now
+                // Actual implementation would require proper block handling
+
+                // Function calls - simplified for now
+                // Actual implementation would require proper function resolving
+
+                // For any other instruction, we simply skip for now
+                _ => {}
+            }
+        }
+    }
+
+    // If the function doesn't have a return instruction, add a default return value
+    // based on the expected return type from the signature
     if let Some(result) = function.signature.returns.first() {
         match result.value_type {
             ir::types::I32 => {
-                func.instruction(&wasm_encoder::Instruction::I32Const(42));
+                func.instruction(&WasmInst::I32Const(0));
             }
             ir::types::I64 => {
-                func.instruction(&wasm_encoder::Instruction::I64Const(42));
+                func.instruction(&WasmInst::I64Const(0));
             }
             ir::types::F32 => {
-                func.instruction(&wasm_encoder::Instruction::F32Const(42.0));
+                func.instruction(&WasmInst::F32Const(0.0));
             }
             ir::types::F64 => {
-                func.instruction(&wasm_encoder::Instruction::F64Const(42.0));
+                func.instruction(&WasmInst::F64Const(0.0));
             }
             _ => {
-                // For any other return type, emit a trap
-                func.instruction(&wasm_encoder::Instruction::Unreachable);
+                func.instruction(&WasmInst::Unreachable);
             }
         }
     }
 
     // End the function
-    func.instruction(&wasm_encoder::Instruction::End);
+    func.instruction(&WasmInst::End);
 
     func
 }

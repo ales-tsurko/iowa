@@ -280,7 +280,7 @@ fn compile_message_with_receiver(
 /// This function handles arbitrarily deep nested expressions in arguments.
 /// It properly processes all types of expressions including:
 /// - Literal values (numbers, strings)
-/// - Identifiers 
+/// - Identifiers
 /// - Message chains with any level of nesting
 /// - Operators and their arguments
 fn compile_argument(arg: &Argument, builder: &mut FunctionBuilder) -> Value {
@@ -293,12 +293,12 @@ fn compile_argument(arg: &Argument, builder: &mut FunctionBuilder) -> Value {
     // For now, we just evaluate the first chain, but in the future
     // we might need to handle multiple chains differently
     let chain = &arg.chains[0];
-    
+
     // If there are no messages in the chain, return nil
     if chain.messages.is_empty() {
         return runtime::value::encode_nil(builder);
     }
-    
+
     // If it's a single message with no arguments, we can optimize common cases
     if chain.messages.len() == 1 && chain.messages[0].args.is_empty() {
         let message = &chain.messages[0];
@@ -318,19 +318,23 @@ fn compile_argument(arg: &Argument, builder: &mut FunctionBuilder) -> Value {
                 let content = quote.content();
                 let length = builder.ins().iconst(types::I32, content.len() as i64);
                 let string_ptr = runtime::memory::allocation::alloc_string(builder, length);
-                return runtime::value::encode_reference(builder, string_ptr, runtime::value::TAG_STRING_REF);
-            },
+                return runtime::value::encode_reference(
+                    builder,
+                    string_ptr,
+                    runtime::value::TAG_STRING_REF,
+                );
+            }
             Symbol::Identifier(id) => {
                 // Simple variable reference
                 let lobby = get_lobby(builder);
                 let name_str = id.name();
                 let name_value = runtime::dispatch::encode_string_constant(builder, name_str);
                 return runtime::object::lookup_slot(builder, lobby, name_value);
-            },
+            }
             _ => {} // Fall through to full chain compilation for operators
         }
     }
-    
+
     // For more complex expressions, use the full message chain compilation
     compile_message_chain(chain, builder)
 }
