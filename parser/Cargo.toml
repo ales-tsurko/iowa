@@ -7,9 +7,9 @@ authors = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dyn-clone = { workspace = true }
-nom = { workspace = true }
-rayon = { workspace = true }
+dyn-clone = "1.0"
+nom = { version = "8", default-features = false, features = ["alloc"] }
+rayon = "1.10"
 
 [lints]
 workspace = true

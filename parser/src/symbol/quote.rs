@@ -10,6 +10,13 @@ use nom::{
 #[derive(Debug, PartialEq, Clone)]
 pub struct Quote(String);
 
+impl Quote {
+    /// Get the content of the quote
+    pub fn content(&self) -> &str {
+        &self.0
+    }
+}
+
 pub(crate) fn quote(input: &str) -> IResult<&str, Quote> {
     let quote_parser = alt((tri_quote, mono_quote));
     map(quote_parser, Quote).parse(input)

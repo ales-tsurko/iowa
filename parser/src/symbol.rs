@@ -75,11 +75,18 @@ impl From<Quote> for Symbol<'_> {
 
 /// Identifier token.
 #[derive(Debug, PartialEq, Clone)]
-pub struct Identifier<'a>(&'a str);
+pub struct Identifier<'a>(pub &'a str);
 
 impl<'a> From<&'a str> for Identifier<'a> {
     fn from(input: &'a str) -> Self {
         Self(input)
+    }
+}
+
+impl<'a> Identifier<'a> {
+    /// Get the string value of the identifier
+    pub fn name(&self) -> &'a str {
+        self.0
     }
 }
 

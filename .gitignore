@@ -4,3 +4,4 @@ ioc-src
 *.code-workspace
 .DS_Store
 .nvim
+CLAUDE.md
