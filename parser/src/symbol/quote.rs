@@ -47,34 +47,33 @@ fn unescape(input: &str) -> IResult<&str, String> {
                 Some('0') => output.push('\0'),
                 Some('x') => {
                     let hex_str: String = chars.take(2).collect();
-                    let byte = u8::from_str_radix(&hex_str, 16).unwrap();
+                    let byte = u8::from_str_radix(&hex_str, 16)
+                        .map_err(|_parse_error| quote_error(input))?;
                     output.push(byte as char);
                 }
                 Some('u') => {
                     let hex_str: String = chars.take(4).collect();
-                    let code_point = u32::from_str_radix(&hex_str, 16).unwrap();
-                    output.push(std::char::from_u32(code_point).unwrap());
+                    let code_point = u32::from_str_radix(&hex_str, 16)
+                        .map_err(|_parse_error| quote_error(input))?;
+                    let ch = std::char::from_u32(code_point).ok_or_else(|| quote_failure(input))?;
+                    output.push(ch);
                 }
                 Some('U') => {
                     let hex_str: String = chars.take(8).collect();
-                    let code_point = u32::from_str_radix(&hex_str, 16).unwrap();
-                    output.push(std::char::from_u32(code_point).unwrap());
+                    let code_point = u32::from_str_radix(&hex_str, 16)
+                        .map_err(|_parse_error| quote_error(input))?;
+                    let ch = std::char::from_u32(code_point).ok_or_else(|| quote_failure(input))?;
+                    output.push(ch);
                 }
                 Some(ch) => output.push(ch),
                 None => {
-                    return Err(nom::Err::Error(nom::error::Error::new(
-                        input,
-                        nom::error::ErrorKind::Fail,
-                    )));
+                    return Err(quote_error(input));
                 }
             }
         } else if ch == '"' {
             return Ok((chars.as_str(), output));
         } else if ch == '\n' {
-            return Err(nom::Err::Failure(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Fail,
-            )));
+            return Err(quote_failure(input));
         } else {
             output.push(ch);
         }
@@ -87,6 +86,14 @@ fn tri_quote(input: &str) -> IResult<&str, String> {
     delimited(tag("\"\"\""), take_until("\"\"\""), tag("\"\"\""))
         .parse(input)
         .map(|(i, o)| (i, o.to_string()))
+}
+
+fn quote_error(input: &str) -> nom::Err<nom::error::Error<&str>> {
+    nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Fail))
+}
+
+fn quote_failure(input: &str) -> nom::Err<nom::error::Error<&str>> {
+    nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::Fail))
 }
 
 #[cfg(test)]
@@ -103,6 +110,17 @@ mod tests {
         );
         assert_eq!(mono_quote(r#""""#), Ok(("", "".to_string())));
         assert_eq!(mono_quote(r#""test"\n"#), Ok(("\\n", "test".to_string())));
+    }
+
+    #[test]
+    fn test_reject_invalid_hex_escape() {
+        mono_quote(r#""\xZZ""#).expect_err("invalid hex escape should fail");
+    }
+
+    #[test]
+    fn test_reject_invalid_unicode_escape() {
+        mono_quote(r#""\uD800""#).expect_err("surrogate escape should fail");
+        mono_quote(r#""\U00110000""#).expect_err("out-of-range Unicode escape should fail");
     }
 
     #[test]

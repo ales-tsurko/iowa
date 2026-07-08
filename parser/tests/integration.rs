@@ -9,7 +9,7 @@ fn parse_and_get_ast(input: &str) -> Vec<MessageChain<'_>> {
 }
 
 // Helper for accessing symbol values
-fn symbol_value<'a>(symbol: &'a Symbol) -> &'a str {
+fn symbol_value<'a>(symbol: &'a Symbol<'_>) -> &'a str {
     match symbol {
         Symbol::Identifier(id) => id.name(),
         Symbol::Operator(op) => op.name(),
@@ -19,7 +19,7 @@ fn symbol_value<'a>(symbol: &'a Symbol) -> &'a str {
 }
 
 // Helper to find identifier in AST
-fn contains_identifier(ast: &[MessageChain], name: &str) -> bool {
+fn contains_identifier(ast: &[MessageChain<'_>], name: &str) -> bool {
     ast.iter().any(|chain| {
         chain.messages.iter().any(|msg| {
             if let Symbol::Identifier(_) = &msg.symbol {
@@ -32,7 +32,7 @@ fn contains_identifier(ast: &[MessageChain], name: &str) -> bool {
 }
 
 // Helper to find operator in AST
-fn contains_operator(ast: &[MessageChain], op_name: &str) -> bool {
+fn contains_operator(ast: &[MessageChain<'_>], op_name: &str) -> bool {
     ast.iter().any(|chain| {
         chain.messages.iter().any(|msg| {
             if let Symbol::Operator(_) = &msg.symbol {
@@ -60,7 +60,7 @@ fn test_ackermann() {
     "\n" print
     "#;
 
-    assert!(parse(input).is_ok())
+    parse(input).expect("Ackermann example should parse");
 }
 
 #[test]
@@ -208,19 +208,29 @@ fn test_ast_validation() {
     assert_eq!(ast.len(), 1, "Should have exactly one message chain");
 
     // Check foo with argument
-    let chain = &ast[0];
+    let chain = ast.first().expect("AST should contain one chain");
     assert_eq!(chain.messages.len(), 2);
 
     // First message should be foo with one argument
     assert_eq!(
-        chain.messages[0].args.len(),
+        chain
+            .messages
+            .first()
+            .expect("chain should contain foo")
+            .args
+            .len(),
         1,
         "foo should have one argument"
     );
 
     // Second message should be bar with no arguments
     assert_eq!(
-        chain.messages[1].args.len(),
+        chain
+            .messages
+            .get(1)
+            .expect("chain should contain bar")
+            .args
+            .len(),
         0,
         "bar should have no arguments"
     );

@@ -1,5 +1,6 @@
 mod comment;
 
+use comment::comment;
 use nom::{
     IResult, Parser,
     branch::alt,
@@ -7,8 +8,6 @@ use nom::{
     character::complete::{char, line_ending, one_of},
     combinator::{opt, recognize, value},
 };
-
-use comment::comment;
 
 pub(crate) fn scpad(input: &str) -> IResult<&str, ()> {
     value((), alt((separator, comment))).parse(input)

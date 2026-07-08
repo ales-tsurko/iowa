@@ -3,12 +3,11 @@ mod operator;
 mod quote;
 
 use nom::{IResult, Parser, branch::alt, bytes::complete::take_while1, combinator::map};
-
-use self::quote::quote;
-
 pub use number::Number;
 pub use operator::Operator;
 pub use quote::Quote;
+
+use self::quote::quote;
 
 /// The Symbol type.
 #[derive(Debug, Clone)]
@@ -117,7 +116,13 @@ mod tests {
         ];
 
         for op in ops {
-            assert_eq!(operator::operator(op).unwrap().1.name(), op);
+            assert_eq!(
+                operator::operator(op)
+                    .expect("operator should parse")
+                    .1
+                    .name(),
+                op
+            );
         }
     }
 }

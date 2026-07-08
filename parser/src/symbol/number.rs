@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn test_parse_decimal_number() {
         assert_eq!(decimal_number("42"), Ok(("", Number::Decimal(42.0))));
-        assert_eq!(decimal_number("3.1415"), Ok(("", Number::Decimal(3.1415))));
+        assert_eq!(decimal_number("3.125"), Ok(("", Number::Decimal(3.125))));
         assert_eq!(
             decimal_number("123.456e+10"),
             Ok(("", Number::Decimal(1234560000000.0)))

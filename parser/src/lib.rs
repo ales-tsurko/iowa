@@ -13,7 +13,6 @@ use nom::{
     multi::{many0, many1, separated_list0},
     sequence::{delimited, preceded, terminated},
 };
-
 pub use symbol::*;
 
 /// Location information for AST nodes
@@ -41,16 +40,18 @@ impl Span {
 
     /// Create a span with explicit start and length from the input
     pub fn with_length(input: &str, start_offset: usize, length: usize) -> Self {
+        let remaining_len = input.get(start_offset..).map_or(0, str::len);
+
         Self {
             start: start_offset,
-            end: start_offset + length.min(input[start_offset..].len()),
+            end: start_offset + length.min(remaining_len),
         }
     }
 
     /// Get line and column information from the span and source text
     pub fn location_info(&self, source: &str) -> (usize, usize) {
         // Handle UTF-8 correctly by working with byte offsets and converting to char counts
-        let bytes_before = &source[..self.start];
+        let bytes_before = source.get(..self.start).unwrap_or(source);
 
         // Count newlines to determine line number (1-based)
         let line = bytes_before.chars().filter(|&c| c == '\n').count() + 1;
@@ -60,7 +61,9 @@ impl Span {
         let column = match last_newline {
             Some(pos) => {
                 // Count Unicode characters from the last newline to the span start
-                bytes_before[pos + 1..].chars().count() + 1
+                bytes_before
+                    .get(pos + 1..)
+                    .map_or(1, |line| line.chars().count() + 1)
             }
             None => {
                 // No newline found, column is the number of Unicode characters
@@ -192,7 +195,7 @@ impl<'a> Message<'a> {
     pub fn new(symbol: Symbol<'a>, args: Vec<Argument<'a>>) -> Self {
         Self {
             symbol,
-            args: args.into(),
+            args,
             span: None,
         }
     }
@@ -201,7 +204,7 @@ impl<'a> Message<'a> {
     pub fn with_span(symbol: Symbol<'a>, args: Vec<Argument<'a>>, span: Span) -> Self {
         Self {
             symbol,
-            args: args.into(),
+            args,
             span: Some(span),
         }
     }
@@ -212,7 +215,15 @@ impl<'a> Message<'a> {
             self.args.push(Argument::from([MessageChain::default()]));
         }
 
-        self.args[0][0].messages.push(msg);
+        let first_arg = self
+            .args
+            .first_mut()
+            .expect("first argument was initialized");
+        let first_chain = first_arg
+            .chains
+            .first_mut()
+            .expect("first message chain was initialized");
+        first_chain.messages.push(msg);
     }
 }
 
