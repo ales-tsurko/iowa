@@ -405,7 +405,7 @@ mod tests {
                     Symbol::Identifier("foo".into()).into(),
                     (
                         Symbol::Identifier("bar".into()),
-                        [[[Symbol::Number(1.0.into()).into()].into()].into()],
+                        [[[Symbol::Number(1_u64.into()).into()].into()].into()],
                     )
                         .into(),
                 ]
@@ -413,7 +413,7 @@ mod tests {
                 [
                     (
                         Symbol::Identifier("baz".into()),
-                        [[[Symbol::Number(0.0.into()).into()].into()].into()],
+                        [[[Symbol::Number(0_u64.into()).into()].into()].into()],
                     )
                         .into(),
                     Symbol::Identifier("qux".into()).into(),
@@ -460,7 +460,7 @@ mod tests {
                 Message::new(
                     Symbol::Identifier("foo".into()),
                     [
-                        [[Symbol::Number(1.0.into()).into()].into()].into(),
+                        [[Symbol::Number(1_u64.into()).into()].into()].into(),
                         [[
                             Message::new(Symbol::Identifier("bar".into()), vec![]),
                             Message::new(Symbol::Identifier("baz".into()), vec![])
@@ -515,7 +515,7 @@ mod tests {
             Symbol::Identifier("foo".into()).into(),
             (
                 Symbol::Identifier("bar".into()),
-                [[[Symbol::Number(1.0.into()).into()].into()].into()],
+                [[[Symbol::Number(1_u64.into()).into()].into()].into()],
             )
                 .into(),
             Symbol::Identifier("baz".into()).into(),
@@ -528,11 +528,11 @@ mod tests {
     fn test_parse_raw_operator_chain() {
         let input = "1 + 2 * 3";
         let expected = MessageChain::new(vec![
-            Symbol::Number(1.0.into()).into(),
+            Symbol::Number(1_u64.into()).into(),
             Symbol::Operator("+".into()).into(),
-            Symbol::Number(2.0.into()).into(),
+            Symbol::Number(2_u64.into()).into(),
             Symbol::Operator("*".into()).into(),
-            Symbol::Number(3.0.into()).into(),
+            Symbol::Number(3_u64.into()).into(),
         ]);
 
         assert_eq!(
