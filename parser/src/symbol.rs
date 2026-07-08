@@ -2,12 +2,13 @@ mod number;
 mod operator;
 mod quote;
 
-use nom::{IResult, Parser, branch::alt, bytes::complete::take_while1, combinator::map};
+use nom::{Parser, branch::alt, bytes::complete::take_while1, combinator::map};
 pub use number::Number;
 pub use operator::Operator;
 pub use quote::Quote;
 
 use self::quote::quote;
+use crate::{Input, ParseResult};
 
 /// The Symbol type.
 #[derive(Debug, Clone)]
@@ -75,7 +76,7 @@ impl<'a> Identifier<'a> {
     }
 }
 
-pub(crate) fn symbol(input: &str) -> IResult<&str, Symbol<'_>> {
+pub(crate) fn symbol(input: Input<'_>) -> ParseResult<'_, Symbol<'_>> {
     alt((
         map(quote, Symbol::Quote),
         map(number::number, Symbol::Number),
@@ -85,26 +86,47 @@ pub(crate) fn symbol(input: &str) -> IResult<&str, Symbol<'_>> {
     .parse(input)
 }
 
-fn identifier(input: &str) -> IResult<&str, Identifier<'_>> {
+fn identifier(input: Input<'_>) -> ParseResult<'_, Identifier<'_>> {
     let id_parser = take_while1(|c: char| c.is_alphanumeric() || c == '_');
-    map(id_parser, Identifier).parse(input)
+    map(id_parser, |id: Input<'_>| Identifier(id.fragment())).parse(input)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn parsed<'a, T>(
+        result: ParseResult<'a, T>,
+    ) -> Result<(&'a str, T), nom::Err<crate::ParserError<'a>>> {
+        result.map(|(rest, value)| (*rest.fragment(), value))
+    }
+
     #[test]
     fn test_parse_identifier() {
-        assert_eq!(identifier("foo"), Ok(("", Identifier("foo"))));
-        assert_eq!(identifier("foo_bar"), Ok(("", Identifier("foo_bar"))));
         assert_eq!(
-            identifier("foo_bar_123_"),
+            parsed(identifier(Input::new("foo"))),
+            Ok(("", Identifier("foo")))
+        );
+        assert_eq!(
+            parsed(identifier(Input::new("foo_bar"))),
+            Ok(("", Identifier("foo_bar")))
+        );
+        assert_eq!(
+            parsed(identifier(Input::new("foo_bar_123_"))),
             Ok(("", Identifier("foo_bar_123_")))
         );
-        assert_eq!(identifier("тест"), Ok(("", Identifier("тест"))));
-        assert_eq!(identifier("_тест"), Ok(("", Identifier("_тест"))));
-        assert_eq!(identifier("_"), Ok(("", Identifier("_"))));
+        assert_eq!(
+            parsed(identifier(Input::new("тест"))),
+            Ok(("", Identifier("тест")))
+        );
+        assert_eq!(
+            parsed(identifier(Input::new("_тест"))),
+            Ok(("", Identifier("_тест")))
+        );
+        assert_eq!(
+            parsed(identifier(Input::new("_"))),
+            Ok(("", Identifier("_")))
+        );
     }
 
     #[test]
@@ -117,9 +139,9 @@ mod tests {
 
         for op in ops {
             assert_eq!(
-                operator::operator(op)
+                operator::operator(Input::new(op))
+                    .map(|(_rest, operator)| operator)
                     .expect("operator should parse")
-                    .1
                     .name(),
                 op
             );

@@ -1,5 +1,5 @@
 use nom::{
-    IResult, Parser,
+    Parser,
     branch::alt,
     bytes::complete::tag,
     character::complete::{char, digit1, hex_digit1, one_of},
@@ -7,6 +7,8 @@ use nom::{
     multi::many1,
     sequence::{pair, preceded},
 };
+
+use crate::{Input, ParseResult};
 
 /// The Number type.
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -29,24 +31,24 @@ impl From<u64> for Number {
     }
 }
 
-pub(crate) fn number(input: &str) -> IResult<&str, Number> {
+pub(crate) fn number(input: Input<'_>) -> ParseResult<'_, Number> {
     alt((hex_number, decimal_number)).parse(input)
 }
 
 // Define a parser for hexadecimal digits
-fn hex_number(input: &str) -> IResult<&str, Number> {
+fn hex_number(input: Input<'_>) -> ParseResult<'_, Number> {
     let hex_tag = alt((tag("0x"), tag("0X")));
     let hex_digits = recognize(many1(hex_digit1));
     let preceded_parser = preceded(hex_tag, hex_digits);
 
-    map_res(preceded_parser, |out: &str| {
-        u64::from_str_radix(out, 16).map(Number::Hex)
+    map_res(preceded_parser, |out: Input<'_>| {
+        u64::from_str_radix(out.fragment(), 16).map(Number::Hex)
     })
     .parse(input)
 }
 
 // Define a parser for decimal numbers
-fn decimal_number(input: &str) -> IResult<&str, Number> {
+fn decimal_number(input: Input<'_>) -> ParseResult<'_, Number> {
     // .42
     let decimal_point_digits = recognize((
         char('.'),
@@ -78,8 +80,8 @@ fn decimal_number(input: &str) -> IResult<&str, Number> {
 
     let sign_and_number = recognize(pair(opt(one_of("+-")), number_formats));
 
-    map_res(sign_and_number, |out: &str| {
-        out.parse::<f64>().map(Number::Decimal)
+    map_res(sign_and_number, |out: Input<'_>| {
+        out.fragment().parse::<f64>().map(Number::Decimal)
     })
     .parse(input)
 }
@@ -88,24 +90,48 @@ fn decimal_number(input: &str) -> IResult<&str, Number> {
 mod tests {
     use super::*;
 
+    fn parsed<'a, T>(
+        result: ParseResult<'a, T>,
+    ) -> Result<(&'a str, T), nom::Err<crate::ParserError<'a>>> {
+        result.map(|(rest, value)| (*rest.fragment(), value))
+    }
+
     #[test]
     fn test_parse_hex_number() {
-        assert_eq!(hex_number("0x1234"), Ok(("", Number::Hex(0x1234))));
-        assert_eq!(hex_number("0Xabcd"), Ok(("", Number::Hex(0xABCD))));
-        assert_eq!(hex_number("0x1a2b3c4d"), Ok(("", Number::Hex(0x1A2B3C4D))));
+        assert_eq!(
+            parsed(hex_number(Input::new("0x1234"))),
+            Ok(("", Number::Hex(0x1234)))
+        );
+        assert_eq!(
+            parsed(hex_number(Input::new("0Xabcd"))),
+            Ok(("", Number::Hex(0xABCD)))
+        );
+        assert_eq!(
+            parsed(hex_number(Input::new("0x1a2b3c4d"))),
+            Ok(("", Number::Hex(0x1A2B3C4D)))
+        );
     }
 
     #[test]
     fn test_parse_decimal_number() {
-        assert_eq!(decimal_number("42"), Ok(("", Number::Decimal(42.0))));
-        assert_eq!(decimal_number("3.125"), Ok(("", Number::Decimal(3.125))));
         assert_eq!(
-            decimal_number("123.456e+10"),
+            parsed(decimal_number(Input::new("42"))),
+            Ok(("", Number::Decimal(42.0)))
+        );
+        assert_eq!(
+            parsed(decimal_number(Input::new("3.125"))),
+            Ok(("", Number::Decimal(3.125)))
+        );
+        assert_eq!(
+            parsed(decimal_number(Input::new("123.456e+10"))),
             Ok(("", Number::Decimal(1234560000000.0)))
         );
-        assert_eq!(decimal_number("0.5e-3"), Ok(("", Number::Decimal(0.0005))));
         assert_eq!(
-            decimal_number("-2.5e-3"),
+            parsed(decimal_number(Input::new("0.5e-3"))),
+            Ok(("", Number::Decimal(0.0005)))
+        );
+        assert_eq!(
+            parsed(decimal_number(Input::new("-2.5e-3"))),
             Ok(("", Number::Decimal(-0.0025)))
         );
     }

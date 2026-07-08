@@ -2,22 +2,24 @@ mod comment;
 
 use comment::comment;
 use nom::{
-    IResult, Parser,
+    Parser,
     branch::alt,
     bytes::complete::tag,
     character::complete::{char, line_ending, one_of},
     combinator::{opt, recognize, value},
 };
 
-pub(crate) fn scpad(input: &str) -> IResult<&str, ()> {
+use crate::{Input, ParseResult};
+
+pub(crate) fn scpad(input: Input<'_>) -> ParseResult<'_, ()> {
     value((), alt((separator, comment))).parse(input)
 }
 
-pub(crate) fn wcpad(input: &str) -> IResult<&str, ()> {
+pub(crate) fn wcpad(input: Input<'_>) -> ParseResult<'_, ()> {
     value((), alt((whitespace, comment))).parse(input)
 }
 
-pub(crate) fn terminator(input: &str) -> IResult<&str, ()> {
+pub(crate) fn terminator(input: Input<'_>) -> ParseResult<'_, ()> {
     value(
         (),
         alt((
@@ -29,11 +31,11 @@ pub(crate) fn terminator(input: &str) -> IResult<&str, ()> {
     .parse(input)
 }
 
-fn separator(input: &str) -> IResult<&str, ()> {
+fn separator(input: Input<'_>) -> ParseResult<'_, ()> {
     value((), alt((char(' '), char('\t'), char('\x0c'), char('\x0b')))).parse(input)
 }
 
-pub(crate) fn whitespace(input: &str) -> IResult<&str, ()> {
+pub(crate) fn whitespace(input: Input<'_>) -> ParseResult<'_, ()> {
     value((), one_of(" \t\r\n\x0b\x0c")).parse(input)
 }
 
@@ -41,33 +43,39 @@ pub(crate) fn whitespace(input: &str) -> IResult<&str, ()> {
 mod tests {
     use super::*;
 
+    fn parsed<'a, T>(
+        result: ParseResult<'a, T>,
+    ) -> Result<(&'a str, T), nom::Err<crate::ParserError<'a>>> {
+        result.map(|(rest, value)| (*rest.fragment(), value))
+    }
+
     #[test]
     fn test_parse_separator() {
-        assert_eq!(separator(" "), Ok(("", ())));
-        assert_eq!(separator("\t"), Ok(("", ())));
-        assert_eq!(separator("\x0c"), Ok(("", ())));
-        assert_eq!(separator("\x0b"), Ok(("", ())));
+        assert_eq!(parsed(separator(Input::new(" "))), Ok(("", ())));
+        assert_eq!(parsed(separator(Input::new("\t"))), Ok(("", ())));
+        assert_eq!(parsed(separator(Input::new("\x0c"))), Ok(("", ())));
+        assert_eq!(parsed(separator(Input::new("\x0b"))), Ok(("", ())));
     }
 
     #[test]
     fn test_parse_terminator() {
-        assert_eq!(terminator(";"), Ok(("", ())));
-        assert_eq!(terminator(";\n"), Ok(("\n", ())));
-        assert_eq!(terminator("; \r"), Ok((" \r", ())));
-        assert_eq!(terminator("\r"), Ok(("", ())));
+        assert_eq!(parsed(terminator(Input::new(";"))), Ok(("", ())));
+        assert_eq!(parsed(terminator(Input::new(";\n"))), Ok(("\n", ())));
+        assert_eq!(parsed(terminator(Input::new("; \r"))), Ok((" \r", ())));
+        assert_eq!(parsed(terminator(Input::new("\r"))), Ok(("", ())));
     }
 
     #[test]
     fn test_parse_scpad() {
-        assert_eq!(scpad(" "), Ok(("", ())));
-        assert_eq!(scpad("# comment\n"), Ok(("", ())));
+        assert_eq!(parsed(scpad(Input::new(" "))), Ok(("", ())));
+        assert_eq!(parsed(scpad(Input::new("# comment\n"))), Ok(("", ())));
     }
 
     #[test]
     fn test_parse_wcpad() {
-        assert_eq!(wcpad(" "), Ok(("", ())));
-        assert_eq!(wcpad("\n"), Ok(("", ())));
-        assert_eq!(wcpad("\r"), Ok(("", ())));
-        assert_eq!(wcpad("# comment\n"), Ok(("", ())));
+        assert_eq!(parsed(wcpad(Input::new(" "))), Ok(("", ())));
+        assert_eq!(parsed(wcpad(Input::new("\n"))), Ok(("", ())));
+        assert_eq!(parsed(wcpad(Input::new("\r"))), Ok(("", ())));
+        assert_eq!(parsed(wcpad(Input::new("# comment\n"))), Ok(("", ())));
     }
 }

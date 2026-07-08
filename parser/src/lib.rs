@@ -1,12 +1,14 @@
 //! Gobbledygook programming language parser.
 
+mod error;
 mod span;
 mod symbol;
 
 use std::ops::{Deref, DerefMut};
 
+pub use error::{Input, ParseResult, ParserError, ParserErrorKind};
 use nom::{
-    IResult, Offset, Parser,
+    Offset, Parser,
     branch::alt,
     character::complete::char,
     combinator::{all_consuming, opt},
@@ -215,15 +217,15 @@ impl<'a> Message<'a> {
             self.args.push(Argument::from([MessageChain::default()]));
         }
 
-        let first_arg = self
-            .args
-            .first_mut()
-            .expect("first argument was initialized");
-        let first_chain = first_arg
-            .chains
-            .first_mut()
-            .expect("first message chain was initialized");
-        first_chain.messages.push(msg);
+        if let Some(first_arg) = self.args.first_mut() {
+            if first_arg.chains.is_empty() {
+                first_arg.chains.push(MessageChain::default());
+            }
+
+            if let Some(first_chain) = first_arg.chains.first_mut() {
+                first_chain.messages.push(msg);
+            }
+        }
     }
 }
 
@@ -240,24 +242,28 @@ impl<'a, A: Into<Vec<Argument<'a>>>> From<(Symbol<'a>, A)> for Message<'a> {
 }
 
 /// Parser entry-point.
-pub fn parse(input: &str) -> IResult<&str, Vec<MessageChain<'_>>> {
+pub fn parse(input: &str) -> ParseResult<'_, Vec<MessageChain<'_>>> {
+    parse_input(Input::new(input))
+}
+
+fn parse_input(input: Input<'_>) -> ParseResult<'_, Vec<MessageChain<'_>>> {
     let delimited_parser = delimited(many0(span::wcpad), message_chain, many0(span::wcpad));
     let many_parser = many0(delimited_parser);
     all_consuming(many_parser).parse(input)
 }
 
-fn message_chain(input: &str) -> IResult<&str, MessageChain<'_>> {
+fn message_chain(input: Input<'_>) -> ParseResult<'_, MessageChain<'_>> {
     let start_input = input;
     let (input, messages) = many1(message).parse(input)?;
     let (input, _) = opt(span::terminator).parse(input)?;
 
     // Calculate span from the original input to current position
-    let span = Span::new(0, start_input.offset(input));
+    let span = Span::new(start_input.location_offset(), input.location_offset());
 
     Ok((input, MessageChain::with_span(messages, span)))
 }
 
-fn message(input: &str) -> IResult<&str, Message<'_>> {
+fn message(input: Input<'_>) -> ParseResult<'_, Message<'_>> {
     let start_input = input;
     let (rest, _) = many0(span::scpad).parse(input)?;
     let (rest, symbol) = symbol(rest)?;
@@ -265,7 +271,7 @@ fn message(input: &str) -> IResult<&str, Message<'_>> {
     let (rest, args) = opt(arguments).parse(rest)?;
 
     // Calculate span from the original input to current position
-    let span = Span::new(0, start_input.offset(rest));
+    let span = Span::new(start_input.location_offset(), rest.location_offset());
 
     Ok((
         rest,
@@ -273,7 +279,7 @@ fn message(input: &str) -> IResult<&str, Message<'_>> {
     ))
 }
 
-fn arguments(input: &str) -> IResult<&str, Vec<Argument<'_>>> {
+fn arguments(input: Input<'_>) -> ParseResult<'_, Vec<Argument<'_>>> {
     alt((
         delimited(
             char('('),
@@ -289,14 +295,14 @@ fn arguments(input: &str) -> IResult<&str, Vec<Argument<'_>>> {
     .parse(input)
 }
 
-fn argument(input: &str) -> IResult<&str, Argument<'_>> {
+fn argument(input: Input<'_>) -> ParseResult<'_, Argument<'_>> {
     let start_input = input;
     let (input, _) = many0(span::wcpad).parse(input)?;
     let (input, chains) = many1(message_chain).parse(input)?;
     let (input, _) = many0(span::wcpad).parse(input)?;
 
     // Calculate span from the original input to current position
-    let span = Span::new(0, start_input.offset(input));
+    let span = Span::new(start_input.location_offset(), input.location_offset());
 
     Ok((input, Argument::with_span(chains, span)))
 }
@@ -329,6 +335,12 @@ mod tests {
             messages,
             span: None,
         }
+    }
+
+    fn parsed<'a, T>(
+        result: ParseResult<'a, T>,
+    ) -> Result<(&'a str, T), nom::Err<ParserError<'a>>> {
+        result.map(|(rest, value)| (*rest.fragment(), value))
     }
 
     #[test]
@@ -371,7 +383,7 @@ mod tests {
           )"#;
 
         // Parse and ignore spans for comparison
-        let result = arguments(input).map(|(rest, args)| {
+        let result = parsed(arguments(Input::new(input))).map(|(rest, args)| {
             // Create a Vec of Arguments with spans removed
             let args_without_spans = args
                 .into_iter()
@@ -418,15 +430,17 @@ mod tests {
     #[test]
     fn test_parse_message() {
         let input = "foo";
-        let result = message(input).map(|(rest, msg)| (rest, Message::new(msg.symbol, msg.args)));
+        let result = parsed(message(Input::new(input)))
+            .map(|(rest, msg)| (rest, Message::new(msg.symbol, msg.args)));
         assert_eq!(result, Ok(("", Symbol::Identifier("foo".into()).into())));
 
         let input = "foo()";
-        let result = message(input).map(|(rest, msg)| (rest, Message::new(msg.symbol, msg.args)));
+        let result = parsed(message(Input::new(input)))
+            .map(|(rest, msg)| (rest, Message::new(msg.symbol, msg.args)));
         assert_eq!(result, Ok(("", Symbol::Identifier("foo".into()).into())));
 
         let input = "foo(1, bar baz)";
-        let result = message(input).map(|(rest, msg)| {
+        let result = parsed(message(Input::new(input))).map(|(rest, msg)| {
             let args = msg
                 .args
                 .into_iter()
@@ -463,7 +477,8 @@ mod tests {
     #[test]
     fn test_parse_message_chain() {
         let input = "foo bar baz";
-        let result = message_chain(input).map(|(rest, chain)| (rest, ignore_spans(chain)));
+        let result = parsed(message_chain(Input::new(input)))
+            .map(|(rest, chain)| (rest, ignore_spans(chain)));
         assert_eq!(
             result,
             Ok((
@@ -477,7 +492,8 @@ mod tests {
         );
 
         let input = "foo bar baz;";
-        let result = message_chain(input).map(|(rest, chain)| (rest, ignore_spans(chain)));
+        let result = parsed(message_chain(Input::new(input)))
+            .map(|(rest, chain)| (rest, ignore_spans(chain)));
         assert_eq!(
             result,
             Ok((
@@ -491,7 +507,8 @@ mod tests {
         );
 
         let input = "foo() bar(1) baz;";
-        let result = message_chain(input).map(|(rest, chain)| (rest, ignore_spans(chain)));
+        let result = parsed(message_chain(Input::new(input)))
+            .map(|(rest, chain)| (rest, ignore_spans(chain)));
 
         // Create the expected message chain without spans
         let expected_chain = MessageChain::new(vec![
@@ -519,7 +536,8 @@ mod tests {
         ]);
 
         assert_eq!(
-            message_chain(input).map(|(rest, chain)| (rest, ignore_spans(chain))),
+            parsed(message_chain(Input::new(input)))
+                .map(|(rest, chain)| (rest, ignore_spans(chain))),
             Ok(("", expected))
         );
     }

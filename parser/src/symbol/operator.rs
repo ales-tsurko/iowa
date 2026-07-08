@@ -1,4 +1,6 @@
-use nom::{IResult, Parser, bytes::complete::take_while1, combinator::map};
+use nom::{Parser, bytes::complete::take_while1, combinator::map};
+
+use crate::{Input, ParseResult};
 
 /// Operator token.
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -17,8 +19,11 @@ impl<'a> Operator<'a> {
     }
 }
 
-pub(crate) fn operator(input: &str) -> IResult<&str, Operator<'_>> {
-    map(take_while1(is_operator_char), Operator).parse(input)
+pub(crate) fn operator(input: Input<'_>) -> ParseResult<'_, Operator<'_>> {
+    map(take_while1(is_operator_char), |op: Input<'_>| {
+        Operator(op.fragment())
+    })
+    .parse(input)
 }
 
 fn is_operator_char(ch: char) -> bool {
