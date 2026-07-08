@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["cli", "compiler", "parser"]
+members = ["compiler", "parser"]
 
 [workspace.package]
 edition = "2024"
@@ -8,7 +8,7 @@ authors = ["Ales Tsurko <ales.tsurko@gmail.com"]
 
 [workspace.dependencies]
 # inner dependencies
-iowa-parser = { path = "./parser" }
+gg-parser = { path = "./parser" }
 
 [workspace.lints.clippy]
 all = "warn"
@@ -21,4 +21,3 @@ strip = true
 lto = true
 codegen-units = 1
 panic = "abort"
-

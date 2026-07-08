@@ -1,4 +1,4 @@
-//! Io programming language parser.
+//! Gobbledygook programming language parser.
 
 mod span;
 mod symbol;

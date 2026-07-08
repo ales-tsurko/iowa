@@ -1,9 +1,9 @@
 //! Integration tests for the Io parser
 
-use iowa_parser::{MessageChain, Symbol, parse};
+use gg_parser::{MessageChain, Symbol, parse};
 
 // Helper function to unwrap parse result and get just the AST
-fn parse_and_get_ast(input: &str) -> Vec<MessageChain> {
+fn parse_and_get_ast(input: &str) -> Vec<MessageChain<'_>> {
     let (_, ast) = parse(input).expect("Failed to parse input");
     ast
 }

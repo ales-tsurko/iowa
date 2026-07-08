@@ -1,5 +1,5 @@
 [package]
-name = "iowa-compiler"
+name = "gg-compiler"
 version = "0.1.0"
 edition = { workspace = true }
 authors = { workspace = true }
@@ -7,13 +7,7 @@ authors = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-cranelift = "0.118.0" # umbrella crate for craneloft_codegen and cranelift_frontend
-cranelift-module = "0.118.0"
-cranelift-jit = "0.118.0"
-cranelift-native = "0.118.0"
-cranelift-control = "0.118.0"
-
-iowa-parser = { workspace = true }
+gg-parser = { workspace = true }
 
 [lints]
 workspace = true

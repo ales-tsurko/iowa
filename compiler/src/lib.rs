@@ -1,1 +1,1 @@
-//! Compiler for Io programming language.
+//! Compiler library for Gobbledygook.
