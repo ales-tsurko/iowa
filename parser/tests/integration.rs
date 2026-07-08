@@ -12,7 +12,7 @@ fn parse_and_get_ast(input: &str) -> Vec<MessageChain<'_>> {
 fn symbol_value<'a>(symbol: &'a Symbol) -> &'a str {
     match symbol {
         Symbol::Identifier(id) => id.name(),
-        Symbol::Operator(op) => op.symbol(),
+        Symbol::Operator(op) => op.name(),
         Symbol::Quote(q) => q.content(),
         Symbol::Number(_) => "<number>",
     }

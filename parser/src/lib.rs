@@ -13,7 +13,6 @@ use nom::{
     multi::{many0, many1, separated_list0},
     sequence::{delimited, preceded, terminated},
 };
-use rayon::prelude::*;
 
 pub use symbol::*;
 
@@ -102,91 +101,6 @@ impl<'a> MessageChain<'a> {
         Self {
             messages,
             span: Some(span),
-        }
-    }
-
-    fn sort(self) -> Self {
-        let mut stack: Vec<Message> = Vec::new();
-        let mut output = Vec::new();
-        let span = self.span;
-
-        for mut msg in self.desugar_operators().messages.into_iter() {
-            // sort arguments
-            msg.args = msg
-                .args
-                .into_par_iter()
-                .map(|arg| {
-                    arg.chains
-                        .into_par_iter()
-                        .map(|chain: MessageChain| chain.sort())
-                        .collect::<Vec<MessageChain>>()
-                        .into()
-                })
-                .collect();
-            match msg.symbol {
-                Symbol::Operator(ref msg_op) => {
-                    if let Some(top) = stack.last() {
-                        if msg_op.precedence() > top.symbol.as_ref_op().precedence() {
-                            Self::fold_op_args(&mut stack);
-                        }
-                    }
-                    stack.push(msg);
-                }
-                _ => output.push(msg),
-            }
-        }
-
-        Self::fold_op_args(&mut stack);
-
-        output.append(&mut stack);
-
-        Self {
-            messages: output,
-            span,
-        }
-    }
-
-    fn desugar_operators(self) -> Self {
-        let mut stack = Vec::new();
-        let mut output = Vec::new();
-        let span = self.span;
-
-        for msg in self.messages.into_iter() {
-            match msg.symbol {
-                Symbol::Operator(_) => {
-                    if let Some(top) = stack.pop() {
-                        output.push(top);
-                    }
-                    stack.push(msg);
-                }
-                _ => match stack.last_mut() {
-                    Some(top) => top.push_to_first_arg(msg),
-                    None => output.push(msg),
-                },
-            }
-        }
-
-        output.append(&mut stack);
-
-        Self {
-            messages: output,
-            span,
-        }
-    }
-
-    fn fold_op_args(stack: &mut Vec<Message>) {
-        if let Some(mut top) = stack.pop() {
-            while let Some(mut next) = stack.pop() {
-                if top.symbol.as_ref_op().precedence() < next.symbol.as_ref_op().precedence() {
-                    next.push_to_first_arg(top);
-                    top = next;
-                } else {
-                    stack.push(next);
-                    break;
-                }
-            }
-
-            stack.push(top);
         }
     }
 }
@@ -318,9 +232,7 @@ impl<'a, A: Into<Vec<Argument<'a>>>> From<(Symbol<'a>, A)> for Message<'a> {
 pub fn parse(input: &str) -> IResult<&str, Vec<MessageChain<'_>>> {
     let delimited_parser = delimited(many0(span::wcpad), message_chain, many0(span::wcpad));
     let many_parser = many0(delimited_parser);
-    let (rest, chains) = all_consuming(many_parser).parse(input)?;
-
-    Ok((rest, chains.into_par_iter().map(|c| c.sort()).collect()))
+    all_consuming(many_parser).parse(input)
 }
 
 fn message_chain(input: &str) -> IResult<&str, MessageChain<'_>> {
@@ -585,64 +497,19 @@ mod tests {
     }
 
     #[test]
-    fn test_desugar_operators() {
-        let input = "foo bar + baz qux * foo bar";
-        let chain = message_chain(input).unwrap().1;
-        let expected = message_chain("foo bar +(baz qux) *(foo bar)").unwrap().1;
+    fn test_parse_raw_operator_chain() {
+        let input = "1 + 2 * 3";
+        let expected = MessageChain::new(vec![
+            Symbol::Number(1.0.into()).into(),
+            Symbol::Operator("+".into()).into(),
+            Symbol::Number(2.0.into()).into(),
+            Symbol::Operator("*".into()).into(),
+            Symbol::Number(3.0.into()).into(),
+        ]);
 
-        // Use ignore_spans for both to compare ignoring span information
         assert_eq!(
-            ignore_spans(chain.desugar_operators()),
-            ignore_spans(expected)
-        );
-    }
-
-    #[test]
-    fn test_sort_message_chain() {
-        let input = "1 >> 2 + 3";
-        let expected = message_chain("1 >>(2 +(3))").unwrap().1;
-        assert_eq!(
-            ignore_spans(message_chain(input).unwrap().1.sort()),
-            ignore_spans(expected)
-        );
-
-        let input = "1 * 2 + 3 >> 4";
-        let expected = message_chain("1 *(2) +(3) >>(4)").unwrap().1;
-        assert_eq!(
-            ignore_spans(message_chain(input).unwrap().1.sort()),
-            ignore_spans(expected)
-        );
-
-        let input = "1 + 2 * 3 + 4 >> 5";
-        let expected = message_chain("1 +(2 *(3)) +(4) >>(5)").unwrap().1;
-        assert_eq!(
-            ignore_spans(message_chain(input).unwrap().1.sort()),
-            ignore_spans(expected)
-        );
-
-        let input = "1 >> 2 + 3 * 4 + 5 >> 6";
-        let expected = message_chain("1 >>(2 +(3 *(4)) +(5)) >>(6)").unwrap().1;
-        assert_eq!(
-            ignore_spans(message_chain(input).unwrap().1.sort()),
-            ignore_spans(expected)
-        );
-
-        let input = "1 >> 2 bar + 3 * baz qux + 4 >> 5";
-        let expected = message_chain("1 >>(2 bar +(3 *(baz qux)) +(4)) >>(5)")
-            .unwrap()
-            .1;
-        assert_eq!(
-            ignore_spans(message_chain(input).unwrap().1.sort()),
-            ignore_spans(expected)
-        );
-
-        let input = "1 >> 2 bar + 3 * baz qux(2 + 2 * 2 >> 3) + 4 >> 5";
-        let expected = message_chain("1 >>(2 bar +(3 *(baz qux(2 +(2 *(2)) >>(3)))) +(4)) >>(5)")
-            .unwrap()
-            .1;
-        assert_eq!(
-            ignore_spans(message_chain(input).unwrap().1.sort()),
-            ignore_spans(expected)
+            message_chain(input).map(|(rest, chain)| (rest, ignore_spans(chain))),
+            Ok(("", expected))
         );
     }
 }

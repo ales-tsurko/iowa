@@ -2,17 +2,12 @@ mod number;
 mod operator;
 mod quote;
 
-use nom::{
-    IResult, Parser,
-    branch::alt,
-    bytes::complete::{tag, take_while1},
-    combinator::map,
-};
+use nom::{IResult, Parser, branch::alt, bytes::complete::take_while1, combinator::map};
 
 use self::quote::quote;
 
 pub use number::Number;
-pub use operator::*;
+pub use operator::Operator;
 pub use quote::Quote;
 
 /// The Symbol type.
@@ -23,18 +18,9 @@ pub enum Symbol<'a> {
     /// Number.
     Number(Number),
     /// Operator.
-    Operator(Box<dyn Operator>),
+    Operator(Operator<'a>),
     /// Quote.
     Quote(Quote),
-}
-
-impl Symbol<'_> {
-    pub(crate) fn as_ref_op(&self) -> &Box<dyn Operator> {
-        match self {
-            Self::Operator(op) => op,
-            _ => unreachable!(),
-        }
-    }
 }
 
 impl PartialEq for Symbol<'_> {
@@ -42,7 +28,7 @@ impl PartialEq for Symbol<'_> {
         match (self, other) {
             (Self::Identifier(a), Self::Identifier(b)) => a == b,
             (Self::Number(a), Self::Number(b)) => a == b,
-            (Self::Operator(a), Self::Operator(b)) => a.symbol() == b.symbol(),
+            (Self::Operator(a), Self::Operator(b)) => a == b,
             (Self::Quote(a), Self::Quote(b)) => a == b,
             _ => false,
         }
@@ -61,9 +47,9 @@ impl From<Number> for Symbol<'_> {
     }
 }
 
-impl<T: Operator> From<T> for Symbol<'_> {
-    fn from(input: T) -> Self {
-        Self::Operator(Box::new(input))
+impl<'a> From<Operator<'a>> for Symbol<'a> {
+    fn from(input: Operator<'a>) -> Self {
+        Self::Operator(input)
     }
 }
 
@@ -92,9 +78,9 @@ impl<'a> Identifier<'a> {
 
 pub(crate) fn symbol(input: &str) -> IResult<&str, Symbol<'_>> {
     alt((
-        map(op_token, Symbol::Operator),
         map(quote, Symbol::Quote),
         map(number::number, Symbol::Number),
+        map(operator::operator, Symbol::Operator),
         map(identifier, Symbol::Identifier),
     ))
     .parse(input)
@@ -103,22 +89,6 @@ pub(crate) fn symbol(input: &str) -> IResult<&str, Symbol<'_>> {
 fn identifier(input: &str) -> IResult<&str, Identifier<'_>> {
     let id_parser = take_while1(|c: char| c.is_alphanumeric() || c == '_');
     map(id_parser, Identifier).parse(input)
-}
-
-fn op_token(input: &str) -> IResult<&str, Box<dyn Operator>> {
-    let table = OperatorTable::global().table.lock().unwrap();
-    for op in &*table {
-        let symbol_tag = tag(op.symbol());
-        let res: IResult<&str, &str> = symbol_tag(input);
-        if let Ok((input, _)) = res {
-            return Ok((input, op.clone()));
-        }
-    }
-
-    Err(nom::Err::Error(nom::error::Error::new(
-        input,
-        nom::error::ErrorKind::Tag,
-    )))
 }
 
 #[cfg(test)]
@@ -142,12 +112,12 @@ mod tests {
     fn test_parse_operator() {
         let ops = [
             "?", "@", "@@", "**", "%", "*", "/", "+", "-", "<<", ">>", "<", "<=", ">", ">=", "!=",
-            "==", "&", "^", "|", "&&", "and", "||", "or", "..", "=", ":=", "::=", "%=", "*=", "/=",
-            "+=", "-=", "<<=", ">>=", "&=", "^=", "|=", "return",
+            "==", "&", "^", "|", "&&", "||", "..", "=", ":=", "::=", "%=", "*=", "/=", "+=", "-=",
+            "<<=", ">>=", "&=", "^=", "|=", "%%", "<=>", "!!!", "?!",
         ];
 
         for op in ops {
-            assert_eq!(op_token(op).unwrap().1.symbol(), op);
+            assert_eq!(operator::operator(op).unwrap().1.name(), op);
         }
     }
 }
