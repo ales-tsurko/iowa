@@ -15,6 +15,29 @@ Primary targets:
 
 Memory is garbage-collected by default.
 
+## Architecture
+
+The project is split by ownership boundaries.
+
+```text
+gg-parser
+  source text -> raw Message tree
+
+gg-compiler
+  raw Message tree -> compiler IR -> type checks -> codegen
+```
+
+`gg-parser` is syntax-only. It knows how to read Io-style message chains,
+arguments, literals, comments, and source locations. It does not know what a
+message means.
+
+`gg-compiler` owns language semantics. It owns compiler messages, operator
+tables, assignment rewrites, type declarations, traits, type checking, and
+codegen.
+
+This means the parser stays small and stable while the compiler can interpret
+the same syntax differently depending on compile-time state.
+
 ## Core Idea
 
 Everything starts as a message.
@@ -91,11 +114,13 @@ Parsing is intentionally small.
 
 ```text
 source
--> tokens
 -> raw Message tree
 ```
 
-Operator precedence is not part of parsing. It is a later rewrite.
+The parser keeps source spans and parser errors, but does not assign semantic
+meaning.
+
+Operator precedence is not part of parsing. It is a compiler rewrite.
 
 ```io
 1 + 2 * 3
@@ -128,6 +153,8 @@ Compiler addOperator("!!", 3)
 ```
 
 Operator changes affect later compiled code in the same compile-time context.
+Because the operator table is compiler-owned, operator sorting belongs to
+`gg-compiler`, not `gg-parser`.
 
 ## Modules
 
@@ -494,13 +521,13 @@ declaration.
 
 ```text
 source
--> raw Message tree
--> compile-time message evaluation
--> operator / assignment rewrite where requested by Compiler
--> core IR
--> type checking
--> optimization
--> native / wasm / JIT
+-> gg-parser: raw Message tree
+-> gg-compiler: compile-time message evaluation
+-> gg-compiler: operator / assignment rewrite
+-> gg-compiler: core IR
+-> gg-compiler: type checking
+-> gg-compiler: optimization
+-> gg-compiler: native / wasm / JIT
 ```
 
 The type checker is compiler-owned. Macros and compiler messages may generate

@@ -1,4 +1,9 @@
-//! Gobbledygook programming language parser.
+//! Syntax-only parser for Gobbledygook.
+//!
+//! This crate parses source text into raw Io-style message trees with source
+//! spans and located parser errors. It does not apply operator precedence,
+//! assignment semantics, compiler messages, type checking, or any other
+//! language meaning. Those phases belong to `gg-compiler`.
 
 mod error;
 mod span;
