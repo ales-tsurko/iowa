@@ -5,7 +5,7 @@ use nom::{
     character::complete::{char, digit1, hex_digit1, one_of},
     combinator::{map_res, opt, recognize},
     multi::many1,
-    sequence::{pair, preceded},
+    sequence::preceded,
 };
 
 use crate::{Input, ParseResult};
@@ -93,9 +93,7 @@ fn float_number(input: Input<'_>) -> ParseResult<'_, Number> {
 
     let number_formats = alt((decimal_point_digits, sci_notation, digits_decimal_point));
 
-    let sign_and_number = recognize(pair(opt(one_of("+-")), number_formats));
-
-    map_res(sign_and_number, |out: Input<'_>| {
+    map_res(number_formats, |out: Input<'_>| {
         out.fragment().parse::<f64>().map(Number::Float)
     })
     .parse(input)
@@ -161,9 +159,9 @@ mod tests {
             parsed(float_number(Input::new("0.5e-3"))),
             Ok(("", Number::Float(0.0005)))
         );
-        assert_eq!(
-            parsed(float_number(Input::new("-2.5e-3"))),
-            Ok(("", Number::Float(-0.0025)))
-        );
+        assert!(matches!(
+            float_number(Input::new("-2.5e-3")),
+            Err(nom::Err::Error(_))
+        ));
     }
 }
